@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Data Cleaner (Web)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Libraries (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/dayjs.min.js"></script>
+
+  <style>
+    /* VS Code-like dark theme */
+    :root{
+      --bg: #1E1E1E;
+      --bg2:#252526;
+      --bg3:#2D2D2D;
+      --fg: #D4D4D4;
+      --accent:#007ACC;
+      --btn:#0E639C;
+      --btn-hover:#1177BB;
+      --btn-press:#094771;
+      --muted:#666;
+      --border:#2D2D2D;
+    }
+    *{ box-sizing: border-box; }
+    html, body { height: 100%; }
+    body{
+      margin:0; background:var(--bg); color:var(--fg);
+      font: 14px/1.4 -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+      overflow:hidden;
+    }
+
+    /* Menu bar */
+    .menubar{
+      height: 40px; background: var(--bg); border-bottom: 1px solid var(--border);
+      display:flex; align-items:center; gap:10px; padding: 0 10px;
+    }
+    .menubar .menu-group{ display:flex; align-items:center; gap:6px; }
+    .menubar button{
+      background: transparent; color:var(--fg); border:none; padding:6px 10px; border-radius:4px; cursor:pointer;
+    }
+    .menubar button:hover{ background: var(--bg3); }
+
+    /* Status bar */
+    .statusbar{
+      height: 26px; background: var(--accent); color:#fff; padding: 4px 10px;
+      position: absolute; bottom:0; left:0; right:0; display:flex; align-items:center; font-size:12px;
+    }
+
+    /* Layout */
+    .app{
+      position:absolute; top:40px; bottom:26px; left:0; right:0; display:flex;
+    }
+    .sidebar{
+      width:320px; background:var(--bg2); border-right: 1px solid var(--border); display:flex; flex-direction:column;
+    }
+    .sidebar h3{ margin:12px 12px 6px; font-size:13px; font-weight:600; color:#bbb; }
+    .file-list{ flex:1; overflow:auto; }
+    .file-item{
+      padding:8px 12px; border-bottom:1px solid var(--bg3); cursor: pointer;
+    }
+    .file-item:hover{ background: var(--bg3); }
+    .file-item.selected{ background: var(--accent); color:#fff; }
+    .controls{ padding:10px; border-top:1px solid var(--border); display:grid; gap:8px; }
+    .controls .btn{
+      background: var(--btn); border:none; color:#fff; padding:8px 10px; border-radius:4px; cursor:pointer; text-align:center;
+    }
+    .controls .btn:hover{ background: var(--btn-hover); }
+    .controls .btn:active{ background: var(--btn-press); }
+    .controls .muted{ background: var(--bg3); color: var(--muted); cursor: not-allowed; }
+
+    .main{
+      flex:1; display:flex; flex-direction:column; min-width:0;
+    }
+
+    /* Tabs */
+    .tabs{
+      display:flex; gap:1px; border-bottom:2px solid var(--accent); background:var(--bg);
+      padding-left: 6px;
+    }
+    .tab{
+      background: var(--bg3); padding:8px 14px; border-top-left-radius:4px; border-top-right-radius:4px; cursor:pointer;
+    }
+    .tab.active{ background: var(--bg); border-top: 2px solid var(--accent); }
+    .tabpanel{
+      flex:1; overflow:hidden; display:none;
+    }
+    .tabpanel.active{ display:flex; }
+    /* Logs panel */
+    #logsPanel{ padding:10px; }
+    #logs{
+      background: var(--bg); border:1px solid var(--border); color: var(--fg);
+      width:100%; height:100%; resize:none; padding:10px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      overflow:auto; white-space:pre;
+    }
+
+    /* Output panel */
+    #outputPanel{ display:flex; gap:10px; padding:10px; }
+    .output-list{
+      width:340px; border:1px solid var(--border); background: var(--bg2);
+      display:flex; flex-direction:column; min-width:280px; max-width:420px;
+    }
+    .output-list h4{ margin:8px 10px; font-size:13px; color:#bbb; }
+    .output-items{ overflow:auto; flex:1; }
+    .output-item{
+      padding:8px 10px; border-bottom: 1px solid var(--bg3); display:flex; align-items:center; justify-content:space-between; gap:8px;
+    }
+    .output-item .name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .output-item .actions a{
+      background: var(--btn); color:#fff; padding:4px 8px; border-radius:4px; text-decoration:none; font-size:12px;
+    }
+    .output-item .actions a:hover{ background: var(--btn-hover); }
+    .preview{
+      flex:1; min-width:0; display:flex; flex-direction:column;
+    }
+    .preview h4{ margin:0 0 8px; color:#bbb; }
+    .preview textarea{
+      flex:1; width:100%; border:1px solid var(--border); background: var(--bg); color: var(--fg);
+      padding:10px; resize:none; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+
+    /* About */
+    #aboutPanel{ padding:16px; overflow:auto; }
+    #aboutPanel p { color:#c9c9c9; }
+
+    /* Hidden file input */
+    #fileInput{ display:none; }
+  </style>
+</head>
+<body>
+
+  <!-- Menu -->
+  <div class="menubar">
+    <div class="menu-group">
+      <button id="menuAdd">Add Files (Ctrl+O)</button>
+      <button id="menuStart">Start Cleaning (Ctrl+R)</button>
+      <button id="menuToggleSidebar">Toggle Sidebar (Ctrl+B)</button>
+    </div>
+    <div style="margin-left:auto; opacity:.8;">Data Cleaner (Web) — Built by Ruel McNeil</div>
+  </div>
+
+  <!-- App -->
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <h3>Files</h3>
+      <div class="file-list" id="fileList"></div>
+      <div class="controls">
+        <input id="fileInput" type="file" multiple accept=".xlsx,.xlsm,.xls,.csv" />
+        <button class="btn" id="btnAdd">Add Files</button>
+        <button class="btn" id="btnRemove">Remove Selected</button>
+        <button class="btn" id="btnStart">Start Cleaning</button>
+        <button class="btn" id="btnClear">Clear All</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="tabs">
+        <div class="tab active" data-tab="logsPanel">Logs</div>
+        <div class="tab" data-tab="outputPanel">Output</div>
+        <div class="tab" data-tab="aboutPanel">About</div>
+      </div>
+
+      <section class="tabpanel active" id="logsPanel">
+        <textarea id="logs" readonly></textarea>
+      </section>
+
+      <section class="tabpanel" id="outputPanel">
+        <div class="output-list">
+          <h4>Cleaned Files</h4>
+          <div class="output-items" id="outputItems"></div>
+        </div>
+        <div class="preview">
+          <h4>Preview (first 30 rows)</h4>
+          <textarea id="preview" readonly></textarea>
+        </div>
+      </section>
+
+      <section class="tabpanel" id="aboutPanel">
+        <h2>About Data Cleaner</h2>
+        <p>
+          This application automates the cleaning of government V-series datasets in your browser.
+          Add files using the sidebar, click <em>Start Cleaning</em>, and then download the cleaned CSVs.
+          Your data never leaves your machine.
+        </p>
+        <p>&copy; 2025 Ruel – All Rights Reserved</p>
+      </section>
+    </main>
+  </div>
+
+  <!-- Status -->
+  <div class="statusbar"><span id="status">Ready</span></div>
+
+<script>
+/* ------------------------------
+   State
+------------------------------ */
+const state = {
+  files: /** @type {Array<{file:File, name:string, size:string, selected:boolean}>} */([]),
+  cleaned: /** @type {Array<{name:string, blob:Blob, text:string}>} */([]),
+};
+
+/* ------------------------------
+   Utilities (UI)
+------------------------------ */
+const $ = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
+function setStatus(msg){ $('#status').textContent = msg; }
+function log(msg){
+  const logs = $('#logs');
+  logs.value += (logs.value ? '\n' : '') + msg;
+  logs.scrollTop = logs.scrollHeight;
+}
+function fmtSize(bytes){
+  const kb = bytes/1024;
+  return `${kb.toFixed(1)} KB`;
+}
+function renderFileList(){
+  const list = $('#fileList');
+  list.innerHTML = '';
+  state.files.forEach((f, idx)=>{
+    const div = document.createElement('div');
+    div.className = 'file-item' + (f.selected ? ' selected' : '');
+    div.dataset.index = idx;
+    div.innerHTML = `
+      <div><strong>${escapeHtml(f.name)}</strong></div>
+      <div style="opacity:.8; font-size:12px;">${f.size}</div>
+    `;
+    div.addEventListener('click', ()=>{
+      state.files[idx].selected = !state.files[idx].selected;
+      renderFileList();
+    });
+    list.appendChild(div);
+  });
+}
+function renderOutputList(){
+  const out = $('#outputItems');
+  out.innerHTML = '';
+  state.cleaned.forEach((c, idx)=>{
+    const row = document.createElement('div');
+    row.className = 'output-item';
+    const fileName = c.name.endsWith('_cleaned.csv') ? c.name : `${c.name}_cleaned.csv`;
+    row.innerHTML = `
+      <div class="name" title="${escapeHtml(fileName)}">${escapeHtml(fileName)}</div>
+      <div class="actions">
+        <a href="#" data-idx="${idx}" class="download">Download</a>
+        <a href="#" data-idx="${idx}" class="preview">Preview</a>
+      </div>
+    `;
+    out.appendChild(row);
+  });
+
+  // actions
+  out.querySelectorAll('a.download').forEach(a=>{
+    a.addEventListener('click', (e)=>{
+      e.preventDefault();
+      const i = +a.dataset.idx;
+      const c = state.cleaned[i];
+      const fileName = c.name.endsWith('_cleaned.csv') ? c.name : `${c.name}_cleaned.csv`;
+      const url = URL.createObjectURL(c.blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    });
+  });
+  out.querySelectorAll('a.preview').forEach(a=>{
+    a.addEventListener('click', (e)=>{
+      e.preventDefault();
+      const i = +a.dataset.idx;
+      const c = state.cleaned[i];
+      const lines = c.text.split(/\r?\n/).slice(0,31).join('\n');
+      $('#preview').value = lines;
+    });
+  });
+}
+
+/* ------------------------------
+   Event wiring
+------------------------------ */
+$('#btnAdd').addEventListener('click', ()=> $('#fileInput').click());
+$('#menuAdd').addEventListener('click', ()=> $('#fileInput').click());
+$('#fileInput').addEventListener('change', onFilesSelected);
+
+$('#btnRemove').addEventListener('click', ()=>{
+  state.files = state.files.filter(f=>!f.selected);
+  renderFileList();
+  log('Removed selected files.');
+});
+$('#btnClear').addEventListener('click', ()=>{
+  state.files = [];
+  renderFileList();
+  log('Cleared file list.');
+});
+
+$('#btnStart').addEventListener('click', startCleaning);
+$('#menuStart').addEventListener('click', startCleaning);
+$('#menuToggleSidebar').addEventListener('click', ()=> {
+  const sb = $('#sidebar');
+  sb.style.display = (sb.style.display === 'none') ? '' : 'none';
+});
+
+/* Tabs */
+$$('.tab').forEach(tab=>{
+  tab.addEventListener('click', ()=>{
+    $$('.tab').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    const id = tab.dataset.tab;
+    $$('.tabpanel').forEach(p=>p.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+  });
+});
+
+/* Keyboard shortcuts */
+document.addEventListener('keydown', (e)=>{
+  if(e.ctrlKey && e.key.toLowerCase()==='o'){ e.preventDefault(); $('#fileInput').click(); }
+  if(e.ctrlKey && e.key.toLowerCase()==='r'){ e.preventDefault(); startCleaning(); }
+  if(e.ctrlKey && e.key.toLowerCase()==='b'){ e.preventDefault(); $('#menuToggleSidebar').click(); }
+});
+
+/* ------------------------------
+   File selection
+------------------------------ */
+function onFilesSelected(ev){
+  const files = Array.from(ev.target.files || []);
+  let added = 0;
+  files.forEach(f=>{
+    if(!state.files.find(x=>x.name===f.name && x.file.size===f.size)){
+      state.files.push({file:f, name:f.name, size:fmtSize(f.size), selected:false});
+      added++;
+    }
+  });
+  renderFileList();
+  if(added) log(`Added ${added} file(s).`);
+  ev.target.value = ''; // reset input
+}
+
+/* ------------------------------
+   Cleaning Logic (JS port)
+------------------------------ */
+
+const BANNED_WORDS = new Set([
+  'MINISTRY','AGREEMENT','PROJECT','REPORT','AUDIT','DEPARTMENT','SERVICES','PROGRAMME',
+  'PROCUREMENT','IMPLEMENTING','FORCE','ASSOCIATION','EDUCATION','LOAN','FINANCING',
+  'HURRICANE','RELIEF','BANK','ACCOUNT','CABINET','SUBMISSION','COMMENTS','TRACKING',
+  'LETTER','DECISION','SUBMISSON'
+]);
+const DT_PREFIXES = ['MF','MFP','FILE','LOAN','LETTER','CABINET'];
+const DELIM_RE = /(?<=\s)-|-(?=\s)/g;
+
+function extract_file_number(doc_name){
+  if(!doc_name) return null;
+  let m = doc_name.match(/File\s*No:\s*([A-Za-z0-9/]+)/i);
+  if(m){
+    const val = m[1].trim();
+    return val.includes('/') ? val.split('/')[0] : val;
+  }
+  m = doc_name.match(/File\s*-\s*([A-Za-z0-9]+)/i);
+  if(m) return m[1].trim();
+  m = doc_name.match(/^\s*([0-9]{2,4})\/[0-9]{2,4}/);
+  if(m) return m[1];
+  return null;
+}
+function remove_leading_file_code(s){
+  return s.replace(/^\/\d{1,4}\s*/, '');
+}
+function extract_name_and_mda(doc_name, file_number, doc_type){
+  let s = (doc_name||'').trim();
+  const dt = (doc_type||'').trim();
+  if(dt && s.toUpperCase().endsWith(dt.toUpperCase())){
+    const idx = s.toUpperCase().lastIndexOf(dt.toUpperCase());
+    s = s.slice(0, idx).replace(/\s*-\s*$/,'').trim();
+  }
+  if(file_number){
+    const idx = s.toUpperCase().indexOf(file_number.toUpperCase());
+    if(idx !== -1) s = s.slice(idx + file_number.length);
+  }
+  s = s.replace(/^\s*-+\s*/,'');
+  s = remove_leading_file_code(s);
+
+  // Title handling: MR/MRS/MS/MISS
+  let m = s.match(/\b(MR|MRS|MS|MISS)\.?\s+/i);
+  if(m){
+    const after = s.slice(m.index + m[0].length).trim();
+    const parts = after.split(DELIM_RE).map(p=>p.trim()).filter(Boolean);
+    const candidate = parts.length ? parts[0] : after;
+    let tokens = candidate.split(/[\s\-]+/).filter(Boolean);
+    if(tokens.length > 3) tokens = tokens.slice(0,3);
+    const name = tokens.length ? tokens.join(' ').toUpperCase() : null;
+    let mda = null;
+    if(parts.length > 1){
+      const mda_candidate = parts.slice(1).join(' - ').trim();
+      if(mda_candidate) mda = mda_candidate.toUpperCase();
+    }
+    return {name, mda};
+  }
+
+  let parts = s.split(DELIM_RE).map(p=>p.trim()).filter(Boolean)
+               .filter(p => !/^\/\d{1,4}$/.test(p));
+
+  let name = null, mda = null;
+
+  for(let i=0;i<parts.length;i++){
+    const part = parts[i];
+    const up = part.toUpperCase();
+    if(DT_PREFIXES.some(pfx=>up.startsWith(pfx))) continue;
+    if(Array.from(BANNED_WORDS).some(bad=>up.includes(bad))) continue;
+    let tokens = up.split(/[\s\-]+/).filter(Boolean);
+    if(tokens.length>=2 && tokens.length<=4 && tokens.filter(t=>/[A-Z]/.test(t)).length>=2){
+      if(tokens.length>3) tokens = tokens.slice(0,3);
+      name = tokens.join(' ');
+      // build MDA from remaining parts until a DT_PREFIX
+      const mda_parts = [];
+      for(let j=i+1;j<parts.length;j++){
+        const segUp = parts[j].toUpperCase();
+        if(DT_PREFIXES.some(pfx=>segUp.startsWith(pfx))) break;
+        mda_parts.push(parts[j].trim());
+      }
+      if(mda_parts.length) mda = mda_parts.join(' - ').trim().toUpperCase();
+      break;
+    }
+  }
+  if(!name){
+    const mda_parts=[];
+    for(const part of parts){
+      const up = part.toUpperCase();
+      if(DT_PREFIXES.some(pfx=>up.startsWith(pfx))) break;
+      mda_parts.push(part.trim());
+    }
+    if(mda_parts.length) mda = mda_parts.join(' - ').trim().toUpperCase();
+  }
+  return {name, mda};
+}
+function format_date(value){
+  if(value==null || value==='') return null;
+  // Attempt with dayjs; it handles numbers (Excel dates) poorly without plugin,
+  // but SheetJS will emit JS Date for xlsx, and Papa for CSV leaves strings.
+  let d;
+  if(value instanceof Date && !isNaN(value)) d = dayjs(value);
+  else {
+    // Try to coerce numerics like Excel serial? SheetJS gives Date by default when cellDates option is true;
+    // Here we rely on Date parsing fallback.
+    const tryD = dayjs(value);
+    d = tryD.isValid() ? tryD : null;
+  }
+  if(!d) return null;
+  return d.format('DD/MM/YYYY');
+}
+function normalizeColumns(dfRows){
+  // If required columns missing, try to infer/rename
+  // dfRows is array of row objects
+  const required = ['Document Name','File Path','Document Type Group','Date Stored','Document Type'];
+  if(dfRows.length===0) return dfRows;
+
+  // Build header mapping
+  const headers = Object.keys(dfRows[0]);
+  const rename = {};
+  headers.forEach(col=>{
+    const low = col.toLowerCase().trim();
+    if((low.startsWith('doc') && low.includes('name')) && !headers.includes('Document Name')) rename[col] = 'Document Name';
+    else if((low.startsWith('file') && low.includes('path')) && !headers.includes('File Path')) rename[col] = 'File Path';
+    else if(low.startsWith('document type group') && !headers.includes('Document Type Group')) rename[col] = 'Document Type Group';
+    else if((low.startsWith('date') && low.includes('stored')) && !headers.includes('Date Stored')) rename[col] = 'Date Stored';
+    else if(low.startsWith('document type') && !headers.includes('Document Type')) rename[col] = 'Document Type';
+  });
+
+  if(Object.keys(rename).length){
+    return dfRows.map(row=>{
+      const out = {...row};
+      for(const [from,to] of Object.entries(rename)){
+        if(from in out){ out[to] = out[from]; delete out[from]; }
+      }
+      return out;
+    });
+  }
+  return dfRows;
+}
+function clean_dataframe(dfRows){
+  const out = [];
+  for(const row of dfRows){
+    const doc_name = String(row['Document Name'] ?? '').trim();
+    const file_path = String(row['File Path'] ?? '').trim();
+    const doc_type_group = String(row['Document Type Group'] ?? '').trim();
+    const date_val = row['Date Stored'];
+    const doc_type = String(row['Document Type'] ?? '').trim();
+    const file_name = file_path ? file_path.split(/[\\/]/).pop() : '';
+    const date_str = format_date(date_val);
+    const file_number = extract_file_number(doc_name);
+    const {name, mda} = extract_name_and_mda(doc_name, file_number, doc_type);
+    out.push({
+      'FolderName': 'OnBase Files',
+      'Document Name': doc_name,
+      'File Number': file_number ?? '',
+      'Name': name ?? '',
+      'MDA': mda ?? '',
+      'File Path': file_name,
+      'Document Type Group': doc_type_group,
+      'Date Stored': date_str ?? '',
+      'Document Type': doc_type,
+    });
+  }
+  return out;
+}
+
+/* ------------------------------
+   Readers
+------------------------------ */
+async function readFileAsArrayBuffer(file){
+  return new Promise((res, rej)=>{
+    const fr = new FileReader();
+    fr.onload = ()=> res(fr.result);
+    fr.onerror = rej;
+    fr.readAsArrayBuffer(file);
+  });
+}
+async function readFileAsText(file){
+  return new Promise((res, rej)=>{
+    const fr = new FileReader();
+    fr.onload = ()=> res(fr.result);
+    fr.onerror = rej;
+    fr.readAsText(file);
+  });
+}
+async function parseSpreadsheet(file){
+  // returns array of row objects
+  const ab = await readFileAsArrayBuffer(file);
+  const wb = XLSX.read(ab, {type:'array', cellDates:true});
+  const sheetName = wb.SheetNames[0];
+  const ws = wb.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(ws, {defval:'', raw:true});
+  return rows;
+}
+async function parseCsv(file){
+  const text = await readFileAsText(file);
+  return new Promise((res, rej)=>{
+    Papa.parse(text, {
+      header: true,
+      skipEmptyLines: 'greedy',
+      complete: results => res(results.data),
+      error: err => rej(err)
+    });
+  });
+}
+
+/* ------------------------------
+   Cleaning Orchestrator
+------------------------------ */
+async function startCleaning(){
+  if(state.files.length===0){
+    alert('Please add files to clean.');
+    return;
+  }
+  setStatus('Cleaning in progress…');
+  log('Starting cleaning process...');
+  state.cleaned = [];
+  $('#preview').value = '';
+  // Switch to Output tab when done
+  for(const item of state.files){
+    const ext = item.name.toLowerCase().split('.').pop();
+    try{
+      log(`Reading ${item.name}...`);
+      let rows;
+      if(['xlsx','xlsm','xls'].includes(ext)){
+        rows = await parseSpreadsheet(item.file);
+      }else if(['csv','txt'].includes(ext)){
+        rows = await parseCsv(item.file);
+      }else{
+        log(`Unsupported format: ${item.name}`);
+        continue;
+      }
+
+      // Column normalization
+      const maybeRenamed = normalizeColumns(rows);
+
+      // Check required columns
+      const required = ['Document Name','File Path','Document Type Group','Date Stored','Document Type'];
+      const missing = required.filter(c => !(c in (maybeRenamed[0] || {})));
+      if(missing.length){
+        log(`Attempting to infer missing columns for ${item.name} (missing: ${missing.join(', ')})`);
+      }
+
+      log('Cleaning data...');
+      const cleanedRows = clean_dataframe(maybeRenamed);
+
+      // To CSV
+      const csv = Papa.unparse(cleanedRows);
+      const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+      const base = item.name.replace(/\.[^.]+$/,'');
+      const outName = `${base}_cleaned.csv`;
+      state.cleaned.push({name: outName, blob, text: csv});
+      log(`Saved cleaned: ${outName}`);
+    }catch(e){
+      console.error(e);
+      log(`Error processing ${item.name}: ${e.message || e}`);
+    }
+  }
+
+  if(state.cleaned.length){
+    log('Cleaning completed.');
+    setStatus('Cleaning finished.');
+    renderOutputList();
+    // Switch to Output tab
+    $$('.tab').forEach(t=>t.classList.remove('active'));
+    $$('.tabpanel').forEach(p=>p.classList.remove('active'));
+    document.querySelector('.tab[data-tab="outputPanel"]').classList.add('active');
+    $('#outputPanel').classList.add('active');
+  }else{
+    log('No files were cleaned.');
+    setStatus('Ready');
+  }
+}
+
+/* ------------------------------
+   Helpers
+------------------------------ */
+function escapeHtml(s){
+  return (s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+/* ------------------------------
+   Init
+------------------------------ */
+setStatus('Ready');
+log('Welcome! Add .xlsx/.xls/.csv files and click "Start Cleaning".');
+renderFileList();
+
+</script>
+</body>
+</html>
