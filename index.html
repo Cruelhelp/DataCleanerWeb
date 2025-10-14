@@ -74,19 +74,26 @@
       flex:1; display:flex; flex-direction:column; min-width:0;
     }
 
-    /* Tabs */
-    .tabs{
-      display:flex; gap:1px; border-bottom:2px solid var(--accent); background:var(--bg);
-      padding-left: 6px;
-    }
+    /* Tabs: styles for each tab defined later. */
     .tab{
-      background: var(--bg3); padding:8px 14px; border-top-left-radius:4px; border-top-right-radius:4px; cursor:pointer;
+      background: var(--bg3);
+      padding:8px 14px;
+      border-top-left-radius:4px;
+      border-top-right-radius:4px;
+      cursor:pointer;
     }
-    .tab.active{ background: var(--bg); border-top: 2px solid var(--accent); }
+    .tab.active{
+      background: var(--bg);
+      border-top: 2px solid var(--accent);
+    }
     .tabpanel{
-      flex:1; overflow:hidden; display:none;
+      flex:1;
+      overflow:hidden;
+      display:none;
     }
-    .tabpanel.active{ display:flex; }
+    .tabpanel.active{
+      display:flex;
+    }
     /* Logs panel */
     #logsPanel{ padding:10px; }
     #logs{
@@ -116,16 +123,173 @@
     }
     .preview h4{ margin:0 0 8px; color:#bbb; }
     .preview textarea{
-      flex:1; width:100%; border:1px solid var(--border); background: var(--bg); color: var(--fg);
-      padding:10px; resize:none; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      /* This rule is kept for backward compatibility but no longer used */
+      display:none;
+    }
+
+    /* Table-based preview to mimic a spreadsheet grid */
+    .preview-table {
+      flex:1;
+      width:100%;
+      overflow:auto;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      color: #000000;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 13px;
+    }
+    .preview-table table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .preview-table td {
+      border: 1px solid #cccccc;
+      padding: 4px 6px;
+      white-space: nowrap;
+    }
+
+    /* Log container for color-coded log entries */
+    .log-container {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--fg);
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+      padding: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      white-space: pre-wrap;
+    }
+    .log-entry {
+      margin-bottom: 4px;
+      line-height: 1.3;
+    }
+    .log-info { color: var(--fg); }
+    .log-success { color: #4caf50; }
+    .log-warning { color: #ff9800; }
+    .log-error { color: #e53935; }
+
+    /* Highlight newly added files */
+    .file-item.just-added {
+      animation: highlightFlash 2s forwards;
+    }
+    @keyframes highlightFlash {
+      0% { background: rgba(0, 122, 204, 0.3); }
+      100% { background: var(--bg2); }
+    }
+
+
+    /* Tab grouping: separate main and secondary tabs */
+    .tabs {
+      display:flex;
+      gap:1px;
+      border-bottom:2px solid var(--accent);
+      background:var(--bg);
+      padding-left:6px;
+    }
+    .tab-group {
+      display:flex;
+    }
+    .tab-group + .tab-group {
+      margin-left:auto;
     }
 
     /* About */
     #aboutPanel{ padding:16px; overflow:auto; }
     #aboutPanel p { color:#c9c9c9; }
 
+    /* Home & Change Log & Settings Panels */
+    #changelogPanel, #settingsPanel{
+      padding:16px;
+      overflow-y: auto;
+    }
+    /* Settings list styling */
+    .settings-list{
+      list-style: none;
+      padding-left: 0;
+      margin: 0;
+    }
+    .settings-list li{
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
     /* Hidden file input */
     #fileInput{ display:none; }
+
+    /* Mobile responsive layout */
+    @media (max-width: 800px) {
+      .app{
+        flex-direction: column;
+      }
+      .sidebar{
+        width:100%;
+        border-right:none;
+        border-bottom:1px solid var(--border);
+      }
+      .tabs{
+        flex-wrap: wrap;
+      }
+      #outputPanel, #logsPanel, #aboutPanel, #settingsPanel{
+        padding:8px;
+        flex-direction: column;
+      }
+      .preview{
+        margin-top:10px;
+      }
+    }
+
+    /* Improve about page spacing and styling */
+    #aboutPanel {
+      padding: 16px;
+      overflow: auto;
+      line-height: 1.5;
+      max-width: 700px;
+      margin: 0 auto;
+    }
+    #aboutPanel h2 {
+      margin-bottom: 12px;
+      color: var(--accent);
+    }
+    #aboutPanel p {
+      margin-bottom: 12px;
+    }
+    #aboutPanel hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 16px 0;
+    }
+
+    /* Style changelog panel */
+    #changelogPanel {
+      padding: 16px;
+      overflow: auto;
+      line-height: 1.5;
+      max-width: 700px;
+      margin: 0 auto;
+    }
+    #changelogPanel h2 {
+      margin-bottom: 12px;
+      color: var(--accent);
+    }
+    #changelogPanel h3 {
+      margin: 16px 0 8px;
+      color: var(--fg);
+    }
+    #changelogPanel ul {
+      margin: 0 0 8px 20px;
+      padding: 0;
+    }
+    #changelogPanel li {
+      margin-bottom: 6px;
+    }
+    #aboutPanel p{
+      margin-bottom:1rem;
+      line-height:1.6;
+    }
   </style>
 </head>
 <body>
@@ -151,49 +315,107 @@
         <button class="btn" id="btnRemove">Remove Selected</button>
         <button class="btn" id="btnStart">Start Cleaning</button>
         <button class="btn" id="btnClear">Clear All</button>
+
+        <!-- File path trimming strategy select (visible in sidebar for quick access) -->
+        <div style="display:flex; flex-direction:column; gap:4px; font-size:12px; color:#c9c9c9;">
+          <label for="sidebarTrimStrategySelect" style="font-size:12px;">File Path Strategy:</label>
+          <select id="sidebarTrimStrategySelect" style="padding:4px; border-radius:4px; border:1px solid var(--border); background:var(--bg3); color:var(--fg);">
+            <option value="trim_all">Trim all /</option>
+            <option value="trim_first">Trim only the first /</option>
+          </select>
+        </div>
       </div>
     </aside>
 
     <main class="main">
       <div class="tabs">
-        <div class="tab active" data-tab="logsPanel">Logs</div>
-        <div class="tab" data-tab="outputPanel">Output</div>
-        <div class="tab" data-tab="aboutPanel">About</div>
+        <!-- Main tabs group: Logs and Output -->
+        <div class="tab-group">
+          <div class="tab active" data-tab="logsPanel">Logs</div>
+          <div class="tab" data-tab="outputPanel">Output</div>
+        </div>
+        <!-- Secondary tabs group: Settings, Change Log, About -->
+        <div class="tab-group">
+          <div class="tab" data-tab="settingsPanel">Settings</div>
+          <div class="tab" data-tab="changelogPanel">Change Log</div>
+          <div class="tab" data-tab="aboutPanel">About</div>
+        </div>
       </div>
 
       <section class="tabpanel active" id="logsPanel">
-        <textarea id="logs" readonly></textarea>
+        <!-- Replace textarea with a scrollable div for colored logs -->
+        <div id="logs" class="log-container"></div>
       </section>
 
       <section class="tabpanel" id="outputPanel">
         <div class="output-list">
           <h4>Cleaned Files</h4>
+          <button class="btn" id="btnDownloadAll" style="margin:8px 10px; align-self:flex-start;">Download All</button>
           <div class="output-items" id="outputItems"></div>
         </div>
-        <div class="preview">
-          <h4>Preview (first 30 rows)</h4>
-          <textarea id="preview" readonly></textarea>
+        <div class="preview before">
+          <h4>Before (first 30 rows)</h4>
+          <!-- Use a div with a table inside to mimic an Excel grid -->
+          <div id="previewBefore" class="preview-table"></div>
+        </div>
+        <div class="preview after">
+          <h4>After (first 30 rows)</h4>
+          <!-- Use a div with a table inside to mimic an Excel grid -->
+          <div id="previewAfter" class="preview-table"></div>
         </div>
       </section>
 
       <section class="tabpanel" id="aboutPanel">
         <h2>About Data Cleaner</h2>
         <p>
-          This application automates the cleaning of government V-series datasets in your browser.
-          Add files using the sidebar, click <em>Start Cleaning</em>, and then download the cleaned CSVs.
-          Your data never leaves your machine.
-          
-          Source Code:
-          
-          Web Version:
-          https://github.com/Cruelhelp/DataCleanerWeb
-
-          Desktop Version:
-          https://github.com/Cruelhelp/DataCleaner
-
-          
+          This application automates the cleaning of government V-series datasets in your browser. Add files using the sidebar, click <em>Start Cleaning</em>, and then download the cleaned CSVs. Your data never leaves your machine.
         </p>
+        <hr>
+        <p>
+          Source Code:
+          <a href="https://github.com/Cruelhelp/DataCleanerWeb" target="_blank">DataCleanerWeb (Web version)</a>
+          &nbsp;|&nbsp;
+          <a href="https://github.com/Cruelhelp/DataCleaner" target="_blank">DataCleaner (Desktop version)</a>
+        </p>
+        <hr>
         <p>&copy; 2025 Ruel – All Rights Reserved</p>
+      </section>
+
+      <!-- Settings panel -->
+      <section class="tabpanel" id="settingsPanel">
+        <h2>Settings</h2>
+        <ul id="settingsList" class="settings-list">
+          <li>
+            <label for="trimStrategySelect">File Path Strategy:</label>
+            <select id="trimStrategySelect">
+              <option value="trim_all">Trim all /</option>
+              <option value="trim_first">Trim only the first /</option>
+            </select>
+          </li>
+          <li>
+            <label><input type="checkbox" id="optWhitespace" checked> Trim leading/trailing whitespace in document names</label>
+          </li>
+          <li>
+            <label><input type="checkbox" id="optNormalizeDates" checked> Normalize all dates to DD/MM/YYYY</label>
+          </li>
+          <li>
+            <label><input type="checkbox" id="optRemoveBanned" checked> Remove banned words from names</label>
+          </li>
+          <li>
+            <label for="themeSelect">Theme:</label>
+            <select id="themeSelect">
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+            </select>
+          </li>
+        </ul>
+      </section>
+
+
+      <!-- Change Log panel -->
+      <section class="tabpanel" id="changelogPanel">
+        <h2>Change Log</h2>
+        <!-- Change log content will be injected via JavaScript -->
       </section>
     </main>
   </div>
@@ -217,9 +439,23 @@ const $ = sel => document.querySelector(sel);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
 function setStatus(msg){ $('#status').textContent = msg; }
 function log(msg){
-  const logs = $('#logs');
-  logs.value += (logs.value ? '\n' : '') + msg;
-  logs.scrollTop = logs.scrollHeight;
+  const logsContainer = document.getElementById('logs');
+  if(!logsContainer) return;
+  const entry = document.createElement('div');
+  entry.classList.add('log-entry');
+  const lower = String(msg).toLowerCase();
+  if(lower.includes('error')){
+    entry.classList.add('log-error');
+  } else if(lower.includes('saved')){
+    entry.classList.add('log-success');
+  } else if(lower.includes('removed') || lower.includes('cleared') || lower.includes('unsupported')){
+    entry.classList.add('log-warning');
+  } else {
+    entry.classList.add('log-info');
+  }
+  entry.textContent = msg;
+  logsContainer.appendChild(entry);
+  logsContainer.scrollTop = logsContainer.scrollHeight;
 }
 function fmtSize(bytes){
   const kb = bytes/1024;
@@ -230,7 +466,10 @@ function renderFileList(){
   list.innerHTML = '';
   state.files.forEach((f, idx)=>{
     const div = document.createElement('div');
-    div.className = 'file-item' + (f.selected ? ' selected' : '');
+    let classes = 'file-item';
+    if(f.selected) classes += ' selected';
+    if(f.justAdded) classes += ' just-added';
+    div.className = classes;
     div.dataset.index = idx;
     div.innerHTML = `
       <div><strong>${escapeHtml(f.name)}</strong></div>
@@ -282,8 +521,16 @@ function renderOutputList(){
       e.preventDefault();
       const i = +a.dataset.idx;
       const c = state.cleaned[i];
-      const lines = c.text.split(/\r?\n/).slice(0,31).join('\n');
-      $('#preview').value = lines;
+      // Populate before and after preview panes
+      const beforeArea = document.getElementById('previewBefore');
+      const afterArea = document.getElementById('previewAfter');
+      // Use table-based preview for before and after snapshots
+      if(beforeArea){
+        renderCSVTable(beforeArea, c.origText || '');
+      }
+      if(afterArea){
+        renderCSVTable(afterArea, c.text || '');
+      }
     });
   });
 }
@@ -339,13 +586,28 @@ function onFilesSelected(ev){
   let added = 0;
   files.forEach(f=>{
     if(!state.files.find(x=>x.name===f.name && x.file.size===f.size)){
-      state.files.push({file:f, name:f.name, size:fmtSize(f.size), selected:false});
+      // Mark as just added for highlight
+      state.files.push({file:f, name:f.name, size:fmtSize(f.size), selected:false, justAdded:true});
       added++;
     }
   });
   renderFileList();
   if(added) log(`Added ${added} file(s).`);
   ev.target.value = ''; // reset input
+
+  // Remove justAdded highlight after a short delay
+  if(added){
+    setTimeout(() => {
+      let changed = false;
+      state.files.forEach(item => {
+        if(item.justAdded){
+          item.justAdded = false;
+          changed = true;
+        }
+      });
+      if(changed) renderFileList();
+    }, 2500);
+  }
 }
 
 /* ------------------------------
@@ -360,6 +622,65 @@ const BANNED_WORDS = new Set([
 ]);
 const DT_PREFIXES = ['MF','MFP','FILE','LOAN','LETTER','CABINET'];
 const DELIM_RE = /(?<=\s)-|-(?=\s)/g;
+
+// Trim strategy variables and helpers
+// Global variable storing the current file path trimming mode. Possible values: 'trim_all', 'trim_first'
+let trimStrategy = null;
+// Flags controlling optional cleaning behaviours
+let whitespaceEnabled = true;
+let normalizeDatesEnabled = true;
+let bannedWordsEnabled = true;
+
+/**
+ * Trim a file path according to the selected strategy.
+ * @param {string} path The original file path
+ * @param {string} strategy Either 'trim_all' (remove all slashes) or 'trim_first' (remove the first leading slash)
+ * @returns {string} The trimmed path
+ */
+function trimFilePath(path, strategy = 'trim_all') {
+  if (!path) return '';
+  path = String(path).trim();
+  // When trim_all, we defer handling in clean_dataframe; return path unchanged
+  if (strategy === 'trim_all') {
+    return path;
+  } else if (strategy === 'trim_first') {
+    // Remove only the first leading slash or backslash
+    if (path.startsWith('/') || path.startsWith('\\')) {
+      return path.substring(1);
+    }
+    return path;
+  }
+  return path;
+}
+
+/**
+ * Load the trim strategy from localStorage (if previously saved) and update UI selects.
+ */
+function loadTrimStrategy() {
+  const stored = localStorage.getItem('trimStrategy');
+  trimStrategy = stored || null;
+  const sidebarSel = document.getElementById('sidebarTrimStrategySelect');
+  const settingsSel = document.getElementById('trimStrategySelect');
+  if (sidebarSel) {
+    sidebarSel.value = trimStrategy || '';
+  }
+  if (settingsSel) {
+    settingsSel.value = trimStrategy || '';
+  }
+}
+
+/**
+ * Persist and propagate the trim strategy selection.
+ * @param {string} value The chosen strategy
+ */
+function updateTrimStrategy(value) {
+  trimStrategy = value;
+  localStorage.setItem('trimStrategy', value);
+  const sidebarSel = document.getElementById('sidebarTrimStrategySelect');
+  const settingsSel = document.getElementById('trimStrategySelect');
+  if (sidebarSel && sidebarSel.value !== value) sidebarSel.value = value;
+  if (settingsSel && settingsSel.value !== value) settingsSel.value = value;
+}
 
 function extract_file_number(doc_name){
   if(!doc_name) return null;
@@ -417,7 +738,8 @@ function extract_name_and_mda(doc_name, file_number, doc_type){
     const part = parts[i];
     const up = part.toUpperCase();
     if(DT_PREFIXES.some(pfx=>up.startsWith(pfx))) continue;
-    if(Array.from(BANNED_WORDS).some(bad=>up.includes(bad))) continue;
+    // Skip parts containing banned words only if bannedWordsEnabled is true
+    if(bannedWordsEnabled && Array.from(BANNED_WORDS).some(bad=>up.includes(bad))) continue;
     let tokens = up.split(/[\s\-]+/).filter(Boolean);
     if(tokens.length>=2 && tokens.length<=4 && tokens.filter(t=>/[A-Z]/.test(t)).length>=2){
       if(tokens.length>3) tokens = tokens.slice(0,3);
@@ -491,13 +813,31 @@ function normalizeColumns(dfRows){
 function clean_dataframe(dfRows){
   const out = [];
   for(const row of dfRows){
-    const doc_name = String(row['Document Name'] ?? '').trim();
-    const file_path = String(row['File Path'] ?? '').trim();
+    // Document name handling: optionally trim whitespace
+    let doc_name = String(row['Document Name'] ?? '');
+    if (whitespaceEnabled) {
+      doc_name = doc_name.trim();
+    }
+    // File path handling:
+    let originalPath = String(row['File Path'] ?? '');
+    originalPath = originalPath.trim();
+    let outputPath;
+    let file_name;
+    if (trimStrategy === 'trim_first') {
+      // Remove only the first leading slash/backslash and keep the rest of path
+      const trimmedPath = trimFilePath(originalPath, trimStrategy);
+      outputPath = trimmedPath;
+      file_name = trimmedPath ? trimmedPath.split(/[\\/]/).pop() : '';
+    } else {
+      // trim_all: extract only the file name (last segment)
+      file_name = originalPath ? originalPath.split(/[\\/]/).pop() : '';
+      outputPath = file_name;
+    }
     const doc_type_group = String(row['Document Type Group'] ?? '').trim();
     const date_val = row['Date Stored'];
     const doc_type = String(row['Document Type'] ?? '').trim();
-    const file_name = file_path ? file_path.split(/[\\/]/).pop() : '';
-    const date_str = format_date(date_val);
+    // Date normalization: if disabled, keep original value
+    const date_str = normalizeDatesEnabled ? format_date(date_val) : String(date_val ?? '');
     const file_number = extract_file_number(doc_name);
     const {name, mda} = extract_name_and_mda(doc_name, file_number, doc_type);
     out.push({
@@ -506,7 +846,7 @@ function clean_dataframe(dfRows){
       'File Number': file_number ?? '',
       'Name': name ?? '',
       'MDA': mda ?? '',
-      'File Path': file_name,
+      'File Path': outputPath,
       'Document Type Group': doc_type_group,
       'Date Stored': date_str ?? '',
       'Document Type': doc_type,
@@ -566,7 +906,21 @@ async function startCleaning(){
   setStatus('Cleaning in progress…');
   log('Starting cleaning process...');
   state.cleaned = [];
-  $('#preview').value = '';
+  // Clear both before and after preview areas before starting cleaning
+  const beforeAreaClear = document.getElementById('previewBefore');
+  if (beforeAreaClear) beforeAreaClear.innerHTML = '';
+  const afterAreaClear = document.getElementById('previewAfter');
+  if (afterAreaClear) afterAreaClear.innerHTML = '';
+  // Pull latest settings from UI
+  whitespaceEnabled = document.getElementById('optWhitespace') ? document.getElementById('optWhitespace').checked : true;
+  normalizeDatesEnabled = document.getElementById('optNormalizeDates') ? document.getElementById('optNormalizeDates').checked : true;
+  bannedWordsEnabled = document.getElementById('optRemoveBanned') ? document.getElementById('optRemoveBanned').checked : true;
+  // enforce that user selected a trim strategy
+  if(!trimStrategy){
+    alert('Please select a File Path Strategy via the sidebar dropdown or Settings tab before cleaning.');
+    setStatus('Ready');
+    return;
+  }
   // Switch to Output tab when done
   for(const item of state.files){
     const ext = item.name.toLowerCase().split('.').pop();
@@ -593,14 +947,40 @@ async function startCleaning(){
       }
 
       log('Cleaning data...');
+      // Show sample of original vs trimmed file paths for this file
+      try {
+        const samplePaths = maybeRenamed.slice(0, 5).map(r => String(r['File Path'] ?? '')).filter(p => p);
+        if (samplePaths.length) {
+          log('Sample trimmed file paths:');
+          samplePaths.forEach(pth => {
+            let trimmed;
+            if (trimStrategy === 'trim_first') {
+              trimmed = trimFilePath(String(pth).trim(), trimStrategy);
+            } else {
+              // trim_all: show only file name
+              trimmed = String(pth).trim().split(/[\\/]/).pop();
+            }
+            log(`${pth} -> ${trimmed}`);
+          });
+        }
+      } catch (sampleErr) {
+        // ignore errors in preview
+      }
       const cleanedRows = clean_dataframe(maybeRenamed);
 
-      // To CSV
+      // Build original preview CSV (first 30 rows) and cleaned CSV
+      let origCsv = '';
+      try {
+        const origSample = maybeRenamed.slice(0, 30);
+        origCsv = Papa.unparse(origSample);
+      } catch (err) {
+        origCsv = '';
+      }
       const csv = Papa.unparse(cleanedRows);
       const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
       const base = item.name.replace(/\.[^.]+$/,'');
       const outName = `${base}_cleaned.csv`;
-      state.cleaned.push({name: outName, blob, text: csv});
+      state.cleaned.push({name: outName, blob, text: csv, origText: origCsv});
       log(`Saved cleaned: ${outName}`);
     }catch(e){
       console.error(e);
@@ -617,6 +997,19 @@ async function startCleaning(){
     $$('.tabpanel').forEach(p=>p.classList.remove('active'));
     document.querySelector('.tab[data-tab="outputPanel"]').classList.add('active');
     $('#outputPanel').classList.add('active');
+
+    // Automatically populate preview for the first cleaned file
+    try {
+      const first = state.cleaned[0];
+      const beforeDiv = document.getElementById('previewBefore');
+      const afterDiv = document.getElementById('previewAfter');
+      if(first && beforeDiv && afterDiv){
+        renderCSVTable(beforeDiv, first.origText || '');
+        renderCSVTable(afterDiv, first.text || '');
+      }
+    } catch(autoErr) {
+      // ignore auto preview errors
+    }
   }else{
     log('No files were cleaned.');
     setStatus('Ready');
@@ -630,12 +1023,245 @@ function escapeHtml(s){
   return (s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 }
 
+/*
+ * Render a CSV string into a table inside a container.
+ * This function uses Papa.parse to parse the CSV string and constructs
+ * an HTML table with borders to mimic a spreadsheet grid. Only the
+ * first 31 lines (header + 30 rows) are displayed for preview.
+ * @param {HTMLElement} container The element into which the table will be rendered.
+ * @param {string} csvString The CSV data as a string.
+ */
+function renderCSVTable(container, csvString){
+  if(!container){
+    return;
+  }
+  try{
+    // Parse the CSV string into an array of arrays
+    const result = Papa.parse(csvString, {header:false, skipEmptyLines:true});
+    const data = result.data || [];
+    // Limit to first 31 rows (header + 30 rows)
+    const rows = data.slice(0, 31).map(r => r.map(cell => cell ?? ''));
+    const table = document.createElement('table');
+    table.style.width = '100%';
+    table.style.borderCollapse = 'collapse';
+    // If there is at least one row, treat the first row as header
+    if(rows.length > 0){
+      const header = rows[0];
+      const headerRow = document.createElement('tr');
+      header.forEach(cell => {
+        const th = document.createElement('th');
+        th.textContent = cell;
+        th.style.border = '1px solid #cccccc';
+        th.style.padding = '4px 6px';
+        th.style.whiteSpace = 'nowrap';
+        th.style.background = '#d9e1f2';
+        th.style.fontWeight = 'bold';
+        th.style.color = '#000000';
+        headerRow.appendChild(th);
+      });
+      table.appendChild(headerRow);
+      // Remove header row from data
+      rows.shift();
+    }
+    rows.forEach((row, idx) => {
+      const tr = document.createElement('tr');
+      row.forEach(cell => {
+        const td = document.createElement('td');
+        td.textContent = cell;
+        td.style.border = '1px solid #cccccc';
+        td.style.padding = '4px 6px';
+        td.style.whiteSpace = 'nowrap';
+        // Zebra striping
+        if(idx % 2 === 0){
+          td.style.background = '#ffffff';
+        } else {
+          td.style.background = '#f5f5f5';
+        }
+        tr.appendChild(td);
+      });
+      table.appendChild(tr);
+    });
+    // Clear any previous content and append the new table
+    container.innerHTML = '';
+    container.appendChild(table);
+  } catch(err){
+    // In case of parsing error, fallback to plain text inside a preformatted element
+    container.innerHTML = '<pre style="white-space: pre-wrap;">'+escapeHtml(csvString)+'</pre>';
+  }
+}
+
 /* ------------------------------
    Init
 ------------------------------ */
 setStatus('Ready');
 log('Welcome! Add .xlsx/.xls/.csv files and click "Start Cleaning".');
 renderFileList();
+
+// Define change log history with dates and grouped entries
+const changeLogHistory = [
+  {
+    date: '2025-10-14',
+    entries: [
+      'Added before/after cleaning preview for comparison.',
+      'Added light/dark mode toggle in Settings.',
+      'Merged Home and Change Log tabs into a single non-dismissable Change Log tab.',
+      'Improved settings layout and prevented content overflow.'
+    ]
+  },
+  {
+    date: '2025-10-13',
+    entries: [
+      'Added file path strategy options (Trim all / or only the first slash).',
+      'Added Settings tab with additional cleaning toggles and responsive layout.',
+      'Added Download All button in the output panel.',
+      'Added Home and Change Log tabs with dismissible updates.'
+    ]
+  },
+  {
+    date: '2025-10-08',
+    entries: [
+      'Fixed file path trimming logic (handling backslashes and first-slash removal).',
+      'Initial release with core cleaning functions.'
+    ]
+  }
+];
+
+// Theme definitions for light and dark modes
+const themes = {
+  dark: {
+    '--bg': '#1E1E1E',
+    '--bg2': '#252526',
+    '--bg3': '#2D2D2D',
+    '--fg': '#D4D4D4',
+    '--accent': '#007ACC',
+    '--btn': '#0E639C',
+    '--btn-hover': '#1177BB',
+    '--btn-press': '#094771',
+    '--muted': '#666666',
+    '--border': '#2D2D2D'
+  },
+  light: {
+    '--bg': '#f5f5f5',
+    '--bg2': '#eeeeee',
+    '--bg3': '#e0e0e0',
+    '--fg': '#1E1E1E',
+    '--accent': '#007ACC',
+    '--btn': '#007ACC',
+    '--btn-hover': '#006BB3',
+    '--btn-press': '#005A99',
+    '--muted': '#666666',
+    '--border': '#cccccc'
+  }
+};
+
+function applyTheme(theme){
+  const root = document.documentElement;
+  const colors = themes[theme] || themes.dark;
+  Object.keys(colors).forEach(key => {
+    root.style.setProperty(key, colors[key]);
+  });
+}
+
+function loadTheme(){
+  const stored = localStorage.getItem('theme') || 'dark';
+  applyTheme(stored);
+  const themeSelect = document.getElementById('themeSelect');
+  if(themeSelect) themeSelect.value = stored;
+}
+
+function updateTheme(value){
+  applyTheme(value);
+  localStorage.setItem('theme', value);
+}
+
+// Render the change log list into the Change Log panel, skipping dismissed items stored in localStorage
+function renderChangeLog() {
+  const panel = document.getElementById('changelogPanel');
+  if (!panel) return;
+  // Clear panel and add heading
+  panel.innerHTML = '<h2>Change Log</h2>';
+  changeLogHistory.forEach(group => {
+    const h3 = document.createElement('h3');
+    h3.textContent = group.date;
+    h3.style.marginTop = '12px';
+    h3.style.marginBottom = '4px';
+    panel.appendChild(h3);
+    const ul = document.createElement('ul');
+    ul.style.listStyle = 'disc';
+    ul.style.paddingLeft = '20px';
+    group.entries.forEach(entry => {
+      const li = document.createElement('li');
+      li.style.marginBottom = '4px';
+      li.textContent = entry;
+      ul.appendChild(li);
+    });
+    panel.appendChild(ul);
+  });
+}
+
+// Render the home panel message, allowing dismissal
+
+// Initialize trim strategy from localStorage and set up listeners
+loadTrimStrategy();
+// Initialize theme from localStorage
+loadTheme();
+// Hook up change listeners for both strategy selects (sidebar and settings)
+const sidebarSelEl = document.getElementById('sidebarTrimStrategySelect');
+if (sidebarSelEl) {
+  sidebarSelEl.addEventListener('change', (e) => {
+    updateTrimStrategy(e.target.value);
+  });
+}
+const settingsSelEl = document.getElementById('trimStrategySelect');
+if (settingsSelEl) {
+  settingsSelEl.addEventListener('change', (e) => {
+    updateTrimStrategy(e.target.value);
+  });
+}
+
+// Attach change listener for theme selection
+const themeSelectEl = document.getElementById('themeSelect');
+if (themeSelectEl) {
+  themeSelectEl.addEventListener('change', (e) => {
+    updateTheme(e.target.value);
+  });
+}
+
+// Attach click handler for Download All button
+const downloadAllBtn = document.getElementById('btnDownloadAll');
+if (downloadAllBtn) {
+  downloadAllBtn.addEventListener('click', () => {
+    state.cleaned.forEach(c => {
+      const fileName = c.name.endsWith('_cleaned.csv') ? c.name : `${c.name}_cleaned.csv`;
+      const url = URL.createObjectURL(c.blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    });
+  });
+}
+
+// Render change log on initial load
+renderChangeLog();
+
+// Render empty preview grids with headers before any files are loaded
+try {
+  const headerCSV = 'FolderName,Document Name,File Number,Name,MDA,File Path,Document Type Group,Date Stored,Document Type';
+  const beforeContainerInit = document.getElementById('previewBefore');
+  const afterContainerInit = document.getElementById('previewAfter');
+  if(beforeContainerInit) {
+    renderCSVTable(beforeContainerInit, headerCSV + '\n');
+  }
+  if(afterContainerInit) {
+    renderCSVTable(afterContainerInit, headerCSV + '\n');
+  }
+} catch(initErr) {
+  // ignore initialization errors
+}
 
 </script>
 </body>
