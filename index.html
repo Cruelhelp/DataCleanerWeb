@@ -169,6 +169,15 @@
     .log-warning { color: #ff9800; }
     .log-error { color: #e53935; }
 
+    /* Highlight logs container when new files are added */
+    .log-container.new-log {
+      animation: logHighlight 2s forwards;
+    }
+    @keyframes logHighlight {
+      0% { border-color: var(--accent); box-shadow: 0 0 8px var(--accent); }
+      100% { border-color: var(--border); box-shadow: none; }
+    }
+
     /* Highlight newly added files */
     .file-item.just-added {
       animation: highlightFlash 2s forwards;
@@ -263,6 +272,14 @@
       margin: 16px 0;
     }
 
+    #aboutPanel a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    #aboutPanel a:hover {
+      text-decoration: underline;
+    }
+
     /* Style changelog panel */
     #changelogPanel {
       padding: 16px;
@@ -285,6 +302,23 @@
     }
     #changelogPanel li {
       margin-bottom: 6px;
+    }
+
+    /* Custom bullet styles for change log */
+    #changelogPanel ul {
+      margin-left: 0;
+      padding-left: 0;
+    }
+    #changelogPanel li {
+      list-style: none;
+      position: relative;
+      padding-left: 14px;
+    }
+    #changelogPanel li::before {
+      content: '\2022'; /* bullet */
+      position: absolute;
+      left: 0;
+      color: var(--accent);
     }
     #aboutPanel p{
       margin-bottom:1rem;
@@ -448,6 +482,8 @@ function log(msg){
     entry.classList.add('log-error');
   } else if(lower.includes('saved')){
     entry.classList.add('log-success');
+  } else if(lower.includes('added')){
+    entry.classList.add('log-success');
   } else if(lower.includes('removed') || lower.includes('cleared') || lower.includes('unsupported')){
     entry.classList.add('log-warning');
   } else {
@@ -595,6 +631,15 @@ function onFilesSelected(ev){
   if(added) log(`Added ${added} file(s).`);
   ev.target.value = ''; // reset input
 
+  // If files were added, momentarily highlight the logs container
+  if(added){
+    const logsContainer = document.getElementById('logs');
+    if(logsContainer){
+      logsContainer.classList.add('new-log');
+      setTimeout(() => logsContainer.classList.remove('new-log'), 2000);
+    }
+  }
+
   // Remove justAdded highlight after a short delay
   if(added){
     setTimeout(() => {
@@ -607,6 +652,16 @@ function onFilesSelected(ev){
       });
       if(changed) renderFileList();
     }, 2500);
+  }
+
+  // Auto-populate the "Before" preview with the first newly added file's data
+  if(added){
+    // Determine the index of the first newly added file
+    const newIndex = state.files.length - added;
+    const fileObj = state.files[newIndex];
+    if(fileObj && fileObj.file){
+      loadPreviewForFile(fileObj.file).catch(() => {});
+    }
   }
 }
 
@@ -1039,40 +1094,63 @@ function renderCSVTable(container, csvString){
     // Parse the CSV string into an array of arrays
     const result = Papa.parse(csvString, {header:false, skipEmptyLines:true});
     const data = result.data || [];
-    // Limit to first 31 rows (header + 30 rows)
-    const rows = data.slice(0, 31).map(r => r.map(cell => cell ?? ''));
+    // Limit to first 30 rows of data for preview (not counting header row)
+    const rows = data.slice(0, 30).map(r => r.map(cell => cell ?? ''));
+    // Determine number of columns
+    const numCols = rows[0] ? rows[0].length : 0;
+    // Helper to convert column index to Excel-like letters
+    function toColLabel(n){
+      let label = '';
+      while(n >= 0){
+        label = String.fromCharCode((n % 26) + 65) + label;
+        n = Math.floor(n / 26) - 1;
+      }
+      return label;
+    }
     const table = document.createElement('table');
     table.style.width = '100%';
     table.style.borderCollapse = 'collapse';
-    // If there is at least one row, treat the first row as header
-    if(rows.length > 0){
-      const header = rows[0];
-      const headerRow = document.createElement('tr');
-      header.forEach(cell => {
-        const th = document.createElement('th');
-        th.textContent = cell;
-        th.style.border = '1px solid #cccccc';
-        th.style.padding = '4px 6px';
-        th.style.whiteSpace = 'nowrap';
-        th.style.background = '#d9e1f2';
-        th.style.fontWeight = 'bold';
-        th.style.color = '#000000';
-        headerRow.appendChild(th);
-      });
-      table.appendChild(headerRow);
-      // Remove header row from data
-      rows.shift();
+    // Column header row with letters
+    const colHeader = document.createElement('tr');
+    // Top-left blank corner
+    const corner = document.createElement('th');
+    corner.textContent = '';
+    corner.style.border = '1px solid #cccccc';
+    corner.style.background = '#e6f0ff';
+    colHeader.appendChild(corner);
+    for(let c = 0; c < numCols; c++){
+      const th = document.createElement('th');
+      th.textContent = toColLabel(c);
+      th.style.border = '1px solid #cccccc';
+      th.style.padding = '4px 6px';
+      th.style.whiteSpace = 'nowrap';
+      th.style.background = '#e6f0ff';
+      th.style.fontWeight = 'bold';
+      th.style.color = '#000000';
+      colHeader.appendChild(th);
     }
-    rows.forEach((row, idx) => {
+    table.appendChild(colHeader);
+    // Data rows with row numbers
+    rows.forEach((row, rowIndex) => {
       const tr = document.createElement('tr');
-      row.forEach(cell => {
+      // Row header with number
+      const rowHeader = document.createElement('th');
+      rowHeader.textContent = String(rowIndex + 1);
+      rowHeader.style.border = '1px solid #cccccc';
+      rowHeader.style.padding = '4px 6px';
+      rowHeader.style.whiteSpace = 'nowrap';
+      rowHeader.style.background = '#e6f0ff';
+      rowHeader.style.fontWeight = 'bold';
+      rowHeader.style.color = '#000000';
+      tr.appendChild(rowHeader);
+      row.forEach((cell, colIndex) => {
         const td = document.createElement('td');
         td.textContent = cell;
         td.style.border = '1px solid #cccccc';
         td.style.padding = '4px 6px';
         td.style.whiteSpace = 'nowrap';
-        // Zebra striping
-        if(idx % 2 === 0){
+        // Zebra striping for data cells
+        if((rowIndex % 2) === 0){
           td.style.background = '#ffffff';
         } else {
           td.style.background = '#f5f5f5';
@@ -1087,6 +1165,38 @@ function renderCSVTable(container, csvString){
   } catch(err){
     // In case of parsing error, fallback to plain text inside a preformatted element
     container.innerHTML = '<pre style="white-space: pre-wrap;">'+escapeHtml(csvString)+'</pre>';
+  }
+}
+
+/**
+ * Load and display a preview of the raw data for a given File object.
+ * This function reads the file (Excel or CSV), extracts up to the first 30
+ * rows, and renders them into the "Before" preview area using
+ * renderCSVTable(). It leaves the "After" preview untouched until
+ * cleaning occurs.
+ * @param {File} file The file to preview
+ */
+async function loadPreviewForFile(file){
+  try{
+    const ext = file.name.toLowerCase().split('.').pop();
+    let rows;
+    if(['xlsx','xlsm','xls'].includes(ext)){
+      rows = await parseSpreadsheet(file);
+    } else if(['csv','txt'].includes(ext)){
+      rows = await parseCsv(file);
+    } else {
+      return;
+    }
+    // Normalize columns names only for preview; do not apply cleaning logic
+    const maybeRenamed = normalizeColumns(rows);
+    const sample = maybeRenamed.slice(0, 30);
+    const csv = Papa.unparse(sample);
+    const beforeDiv = document.getElementById('previewBefore');
+    if(beforeDiv){
+      renderCSVTable(beforeDiv, csv);
+    }
+  } catch(err){
+    // If preview fails, leave the default header grid
   }
 }
 
