@@ -1,1378 +1,469 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Data Cleaner (Web)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- Libraries (CDN) -->
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/dayjs.min.js"></script>
-
-  <style>
-    /* VS Code-like dark theme */
-    :root{
-      --bg: #1E1E1E;
-      --bg2:#252526;
-      --bg3:#2D2D2D;
-      --fg: #D4D4D4;
-      --accent:#007ACC;
-      --btn:#0E639C;
-      --btn-hover:#1177BB;
-      --btn-press:#094771;
-      --muted:#666;
-      --border:#2D2D2D;
-    }
-    *{ box-sizing: border-box; }
-    html, body { height: 100%; }
-    body{
-      margin:0; background:var(--bg); color:var(--fg);
-      font: 14px/1.4 -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
-      overflow:hidden;
-    }
-
-    /* Menu bar */
-    .menubar{
-      height: 40px; background: var(--bg); border-bottom: 1px solid var(--border);
-      display:flex; align-items:center; gap:10px; padding: 0 10px;
-    }
-    .menubar .menu-group{ display:flex; align-items:center; gap:6px; }
-    .menubar button{
-      background: transparent; color:var(--fg); border:none; padding:6px 10px; border-radius:4px; cursor:pointer;
-    }
-    .menubar button:hover{ background: var(--bg3); }
-
-    /* Status bar */
-    .statusbar{
-      height: 26px; background: var(--accent); color:#fff; padding: 4px 10px;
-      position: absolute; bottom:0; left:0; right:0; display:flex; align-items:center; font-size:12px;
-    }
-
-    /* Layout */
-    .app{
-      position:absolute; top:40px; bottom:26px; left:0; right:0; display:flex;
-    }
-    .sidebar{
-      width:320px; background:var(--bg2); border-right: 1px solid var(--border); display:flex; flex-direction:column;
-    }
-    .sidebar h3{ margin:12px 12px 6px; font-size:13px; font-weight:600; color:#bbb; }
-    .file-list{ flex:1; overflow:auto; }
-    .file-item{
-      padding:8px 12px; border-bottom:1px solid var(--bg3); cursor: pointer;
-    }
-    .file-item:hover{ background: var(--bg3); }
-    .file-item.selected{ background: var(--accent); color:#fff; }
-    .controls{ padding:10px; border-top:1px solid var(--border); display:grid; gap:8px; }
-    .controls .btn{
-      background: var(--btn); border:none; color:#fff; padding:8px 10px; border-radius:4px; cursor:pointer; text-align:center;
-    }
-    .controls .btn:hover{ background: var(--btn-hover); }
-    .controls .btn:active{ background: var(--btn-press); }
-    .controls .muted{ background: var(--bg3); color: var(--muted); cursor: not-allowed; }
-
-    .main{
-      flex:1; display:flex; flex-direction:column; min-width:0;
-    }
-
-    /* Tabs: styles for each tab defined later. */
-    .tab{
-      background: var(--bg3);
-      padding:8px 14px;
-      border-top-left-radius:4px;
-      border-top-right-radius:4px;
-      cursor:pointer;
-    }
-    .tab.active{
-      background: var(--bg);
-      border-top: 2px solid var(--accent);
-    }
-    .tabpanel{
-      flex:1;
-      overflow:hidden;
-      display:none;
-    }
-    .tabpanel.active{
-      display:flex;
-    }
-    /* Logs panel */
-    #logsPanel{ padding:10px; }
-    #logs{
-      background: var(--bg); border:1px solid var(--border); color: var(--fg);
-      width:100%; height:100%; resize:none; padding:10px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      overflow:auto; white-space:pre;
-    }
-
-    /* Output panel */
-    #outputPanel{ display:flex; gap:10px; padding:10px; }
-    .output-list{
-      width:340px; border:1px solid var(--border); background: var(--bg2);
-      display:flex; flex-direction:column; min-width:280px; max-width:420px;
-    }
-    .output-list h4{ margin:8px 10px; font-size:13px; color:#bbb; }
-    .output-items{ overflow:auto; flex:1; }
-    .output-item{
-      padding:8px 10px; border-bottom: 1px solid var(--bg3); display:flex; align-items:center; justify-content:space-between; gap:8px;
-    }
-    .output-item .name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .output-item .actions a{
-      background: var(--btn); color:#fff; padding:4px 8px; border-radius:4px; text-decoration:none; font-size:12px;
-    }
-    .output-item .actions a:hover{ background: var(--btn-hover); }
-    .preview{
-      flex:1; min-width:0; display:flex; flex-direction:column;
-    }
-    .preview h4{ margin:0 0 8px; color:#bbb; }
-    .preview textarea{
-      /* This rule is kept for backward compatibility but no longer used */
-      display:none;
-    }
-
-    /* Table-based preview to mimic a spreadsheet grid */
-    .preview-table {
-      flex:1;
-      width:100%;
-      overflow:auto;
-      background: #ffffff;
-      border: 1px solid var(--border);
-      color: #000000;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      font-size: 13px;
-    }
-    .preview-table table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-    .preview-table td {
-      border: 1px solid #cccccc;
-      padding: 4px 6px;
-      white-space: nowrap;
-    }
-
-    /* Log container for color-coded log entries */
-    .log-container {
-      background: var(--bg);
-      border: 1px solid var(--border);
-      color: var(--fg);
-      width: 100%;
-      height: 100%;
-      overflow: auto;
-      padding: 10px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      white-space: pre-wrap;
-    }
-    .log-entry {
-      margin-bottom: 4px;
-      line-height: 1.3;
-    }
-    .log-info { color: var(--fg); }
-    .log-success { color: #4caf50; }
-    .log-warning { color: #ff9800; }
-    .log-error { color: #e53935; }
-
-    /* Highlight logs container when new files are added */
-    .log-container.new-log {
-      animation: logHighlight 2s forwards;
-    }
-    @keyframes logHighlight {
-      0% { border-color: var(--accent); box-shadow: 0 0 8px var(--accent); }
-      100% { border-color: var(--border); box-shadow: none; }
-    }
-
-    /* Highlight newly added files */
-    .file-item.just-added {
-      animation: highlightFlash 2s forwards;
-    }
-    @keyframes highlightFlash {
-      0% { background: rgba(0, 122, 204, 0.3); }
-      100% { background: var(--bg2); }
-    }
-
-
-    /* Tab grouping: separate main and secondary tabs */
-    .tabs {
-      display:flex;
-      gap:1px;
-      border-bottom:2px solid var(--accent);
-      background:var(--bg);
-      padding-left:6px;
-    }
-    .tab-group {
-      display:flex;
-    }
-    .tab-group + .tab-group {
-      margin-left:auto;
-    }
-
-    /* About */
-    #aboutPanel{ padding:16px; overflow:auto; }
-    #aboutPanel p { color:#c9c9c9; }
-
-    /* Home & Change Log & Settings Panels */
-    #changelogPanel, #settingsPanel{
-      padding:16px;
-      overflow-y: auto;
-    }
-    /* Settings list styling */
-    .settings-list{
-      list-style: none;
-      padding-left: 0;
-      margin: 0;
-    }
-    .settings-list li{
-      margin-bottom: 8px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    /* Hidden file input */
-    #fileInput{ display:none; }
-
-    /* Mobile responsive layout */
-    @media (max-width: 800px) {
-      .app{
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Document Cleaner with Pyodide</title>
+    <!--
+      This HTML document demonstrates how to wrap Python code in a browser using
+      Pyodide.  The interface is similar to the previous VS Code‑inspired
+      cleaners, but instead of relying on SheetJS alone to process data,
+      selected rows are passed to a Python script (running in WebAssembly)
+      which performs the grouping and deduplication using pandas.  Because
+      Pyodide runs inside the browser, we expose controls that let the user
+      choose which records to process to avoid loading the entire workbook into
+      memory at once.  A simple compression step uses JSZip to pack the
+      cleaned Excel file into a zip archive for download.
+    -->
+    <style>
+      /* VS Code–inspired dark theme */
+      :root {
+        --bg: #1e1e1e;
+        --bg2: #252526;
+        --bg3: #2d2d2d;
+        --fg: #d4d4d4;
+        --accent: #007acc;
+        --btn: #0e639c;
+        --btn-hover: #1177bb;
+        --btn-press: #094771;
+        --muted: #8a8a8a;
+        --border: #2d2d2d;
+        --danger: #f14c4c;
+        --radius: 6px;
+        --font-body: "Segoe UI", "Arial", "Helvetica Neue", Helvetica, sans-serif;
+        --font-display: "Segoe UI", "Arial", "Helvetica Neue", Helvetica, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: var(--font-body);
+        overflow: hidden;
+      }
+      /* Top menubar with tabs */
+      .menubar {
+        height: 40px;
+        background: var(--bg);
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 12px;
+      }
+      .menu-item {
+        padding: 6px 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        color: var(--fg);
+        font-size: 13px;
+      }
+      .menu-item.active {
+        background: var(--bg3);
+      }
+      .app {
+        position: absolute;
+        top: 40px;
+        bottom: 26px;
+        left: 0;
+        right: 0;
+        display: flex;
+        min-height: 0;
+      }
+      .sidebar {
+        width: 300px;
+        background: var(--bg2);
+        border-right: 1px solid var(--border);
+        padding: 14px;
+        display: flex;
         flex-direction: column;
+        gap: 14px;
+        overflow-y: auto;
       }
-      .sidebar{
-        width:100%;
-        border-right:none;
-        border-bottom:1px solid var(--border);
+      .sidebar h2 {
+        margin: 0;
+        font-size: 12px;
+        color: #bbbbbb;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
       }
-      .tabs{
-        flex-wrap: wrap;
+      .sidebar input[type="text"], .sidebar select, .sidebar button {
+        width: 100%;
+        padding: 8px;
+        margin-top: 6px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg3);
+        color: var(--fg);
       }
-      #outputPanel, #logsPanel, #aboutPanel, #settingsPanel{
-        padding:8px;
+      .sidebar button {
+        background: var(--btn);
+        border: none;
+        cursor: pointer;
+        font-size: 14px;
+      }
+      .sidebar button:hover { background: var(--btn-hover); }
+      .sidebar button:active { background: var(--btn-press); }
+      .main {
+        flex: 1;
+        display: flex;
         flex-direction: column;
+        overflow: hidden;
       }
-      .preview{
-        margin-top:10px;
+      .main-header {
+        padding: 16px;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg2);
       }
-    }
-
-    /* Improve about page spacing and styling */
-    #aboutPanel {
-      padding: 16px;
-      overflow: auto;
-      line-height: 1.5;
-      max-width: 700px;
-      margin: 0 auto;
-    }
-    #aboutPanel h2 {
-      margin-bottom: 12px;
-      color: var(--accent);
-    }
-    #aboutPanel p {
-      margin-bottom: 12px;
-    }
-    #aboutPanel hr {
-      border: none;
-      border-top: 1px solid var(--border);
-      margin: 16px 0;
-    }
-
-    #aboutPanel a {
-      color: var(--accent);
-      text-decoration: none;
-    }
-    #aboutPanel a:hover {
-      text-decoration: underline;
-    }
-
-    /* Style changelog panel */
-    #changelogPanel {
-      padding: 16px;
-      overflow: auto;
-      line-height: 1.5;
-      max-width: 700px;
-      margin: 0 auto;
-    }
-    #changelogPanel h2 {
-      margin-bottom: 12px;
-      color: var(--accent);
-    }
-    #changelogPanel h3 {
-      margin: 16px 0 8px;
-      color: var(--fg);
-    }
-    #changelogPanel ul {
-      margin: 0 0 8px 20px;
-      padding: 0;
-    }
-    #changelogPanel li {
-      margin-bottom: 6px;
-    }
-
-    /* Custom bullet styles for change log */
-    #changelogPanel ul {
-      margin-left: 0;
-      padding-left: 0;
-    }
-    #changelogPanel li {
-      list-style: none;
-      position: relative;
-      padding-left: 14px;
-    }
-    #changelogPanel li::before {
-      content: '\2022'; /* bullet */
-      position: absolute;
-      left: 0;
-      color: var(--accent);
-    }
-    #aboutPanel p{
-      margin-bottom:1rem;
-      line-height:1.6;
-    }
-  </style>
-</head>
-<body>
-
-  <!-- Menu -->
-  <div class="menubar">
-    <div class="menu-group">
-      <button id="menuAdd">Add Files (Ctrl+O)</button>
-      <button id="menuStart">Start Cleaning (Ctrl+R)</button>
-      <button id="menuToggleSidebar">Toggle Sidebar (Ctrl+B)</button>
+      .main-header h1 {
+        margin: 0;
+        font-size: 20px;
+        color: #ffffff;
+      }
+      .statusbar {
+        height: 26px;
+        background: var(--accent);
+        color: #ffffff;
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: flex;
+        align-items: center;
+        padding: 0 12px;
+        font-size: 12px;
+      }
+      .panel {
+        padding: 16px;
+        flex: 1;
+        overflow-y: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th, td {
+        text-align: left;
+        padding: 8px;
+        border-bottom: 1px solid var(--border);
+      }
+      th {
+        position: sticky;
+        top: 0;
+        background: var(--bg2);
+      }
+      /* A simple search input in main area */
+      .search-bar {
+        margin-bottom: 12px;
+        display: flex;
+        gap: 8px;
+      }
+      .search-bar input {
+        flex: 1;
+        padding: 8px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg3);
+        color: var(--fg);
+      }
+      .search-bar button {
+        padding: 8px 12px;
+        border: none;
+        border-radius: var(--radius);
+        background: var(--btn);
+        color: #fff;
+        cursor: pointer;
+      }
+    </style>
+    <!-- SheetJS for Excel parsing/writing -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+    <!-- JSZip for compression -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+    <!-- Pyodide for running Python in the browser -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
+  </head>
+  <body>
+    <!-- Top menu bar -->
+    <div class="menubar">
+      <div id="tab-cleaner" class="menu-item active" onclick="showTab('cleaner')">Cleaner</div>
+      <div id="tab-about" class="menu-item" onclick="showTab('about')">About</div>
     </div>
-    <div style="margin-left:auto; opacity:.8;">Data Cleaner (Web) — Built by Ruel McNeil</div>
-  </div>
-
-  <!-- App -->
-  <div class="app">
-    <aside class="sidebar" id="sidebar">
-      <h3>Files</h3>
-      <div class="file-list" id="fileList"></div>
-      <div class="controls">
-        <input id="fileInput" type="file" multiple accept=".xlsx,.xlsm,.xls,.csv" />
-        <button class="btn" id="btnAdd">Add Files</button>
-        <button class="btn" id="btnRemove">Remove Selected</button>
-        <button class="btn" id="btnStart">Start Cleaning</button>
-        <button class="btn" id="btnClear">Clear All</button>
-
-        <!-- File path trimming strategy select (visible in sidebar for quick access) -->
-        <div style="display:flex; flex-direction:column; gap:4px; font-size:12px; color:#c9c9c9;">
-          <label for="sidebarTrimStrategySelect" style="font-size:12px;">File Path Strategy:</label>
-          <select id="sidebarTrimStrategySelect" style="padding:4px; border-radius:4px; border:1px solid var(--border); background:var(--bg3); color:var(--fg);">
-            <option value="trim_all">Trim all /</option>
-            <option value="trim_first">Trim only the first /</option>
-          </select>
+    <!-- Main application container -->
+    <div class="app">
+      <!-- Sidebar for controls -->
+      <div class="sidebar" id="sidebar">
+        <h2>Upload File</h2>
+        <input type="file" id="file-input" accept=".xlsx,.xls,.csv" />
+        <button id="scan-btn" onclick="scanItems()">Scan Items</button>
+        <h2>Item Filter</h2>
+        <input type="text" id="item-search" placeholder="Search item numbers" oninput="filterItemList()" />
+        <select id="item-list" multiple size="10" style="height: 200px;"></select>
+        <button id="clean-btn" onclick="cleanSelected()">Clean Selected</button>
+        <button id="download-btn" onclick="downloadCleaned()" disabled>Download Cleaned (zip)</button>
+      </div>
+      <!-- Main area containing either the cleaner UI or the about text -->
+      <div class="main" id="main">
+        <!-- Cleaner content -->
+        <div id="cleaner" class="panel">
+          <div class="main-header">
+            <h1>Interactive Cleaner (Pyodide)</h1>
+          </div>
+          <div class="search-bar">
+            <input type="text" id="search-input" placeholder="Search cleaned data" oninput="filterResults()" />
+          </div>
+          <div style="overflow-y:auto; max-height: calc(100vh - 200px);">
+            <table id="results-table">
+              <thead>
+                <tr id="results-header"></tr>
+              </thead>
+              <tbody id="results-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <!-- About content -->
+        <div id="about" class="panel" style="display:none;">
+          <div class="main-header">
+            <h1>About this Tool</h1>
+          </div>
+          <p>This data cleaner combines the functionality of a grouping tool and a manual trimming
+             tool into a single interface.  It uses the Pyodide project to run
+             Python in the browser, allowing the same pandas logic used on the
+             server to run client‑side.  After you upload an Excel or CSV file,
+             the <em>Scan Items</em> button will analyse the file and present a list of item
+             numbers.  You can select the items you care about, and only those
+             records will be passed into the Python runtime for cleaning.
+          </p>
+          <p>By choosing specific items instead of processing the entire export,
+             you avoid exhausting the browser’s memory.  The cleaned records are
+             grouped by item number, document name, document type group, date stored
+             and document type, and all file paths are consolidated.  The results
+             appear in the table on the Cleaner tab and may be downloaded as a
+             compressed Excel file.</p>
+          <p>This client‑side approach removes the need for a separate grouping app or
+             manual cleanup—everything runs in your browser.  However, be aware
+             that browsers impose strict memory limits【79604301145918†L152-L155】, so
+             processing very large datasets can still be slow or may fail.  When
+             dealing with heavy workloads, we recommend running the cleaning
+             script in a desktop environment instead.</p>
         </div>
       </div>
-    </aside>
-
-    <main class="main">
-      <div class="tabs">
-        <!-- Main tabs group: Logs and Output -->
-        <div class="tab-group">
-          <div class="tab active" data-tab="logsPanel">Logs</div>
-          <div class="tab" data-tab="outputPanel">Output</div>
-        </div>
-        <!-- Secondary tabs group: Settings, Change Log, About -->
-        <div class="tab-group">
-          <div class="tab" data-tab="settingsPanel">Settings</div>
-          <div class="tab" data-tab="changelogPanel">Change Log</div>
-          <div class="tab" data-tab="aboutPanel">About</div>
-        </div>
-      </div>
-
-      <section class="tabpanel active" id="logsPanel">
-        <!-- Replace textarea with a scrollable div for colored logs -->
-        <div id="logs" class="log-container"></div>
-      </section>
-
-      <section class="tabpanel" id="outputPanel">
-        <div class="output-list">
-          <h4>Cleaned Files</h4>
-          <button class="btn" id="btnDownloadAll" style="margin:8px 10px; align-self:flex-start;">Download All</button>
-          <div class="output-items" id="outputItems"></div>
-        </div>
-        <div class="preview before">
-          <h4>Before (first 30 rows)</h4>
-          <!-- Use a div with a table inside to mimic an Excel grid -->
-          <div id="previewBefore" class="preview-table"></div>
-        </div>
-        <div class="preview after">
-          <h4>After (first 30 rows)</h4>
-          <!-- Use a div with a table inside to mimic an Excel grid -->
-          <div id="previewAfter" class="preview-table"></div>
-        </div>
-      </section>
-
-      <section class="tabpanel" id="aboutPanel">
-        <h2>About Data Cleaner</h2>
-        <p>
-          This application automates the cleaning of government V-series datasets in your browser. Add files using the sidebar, click <em>Start Cleaning</em>, and then download the cleaned CSVs. Your data never leaves your machine.
-        </p>
-        <hr>
-        <p>
-          Source Code:
-          <a href="https://github.com/Cruelhelp/DataCleanerWeb" target="_blank">DataCleanerWeb (Web version)</a>
-          &nbsp;|&nbsp;
-          <a href="https://github.com/Cruelhelp/DataCleaner" target="_blank">DataCleaner (Desktop version)</a>
-        </p>
-        <hr>
-        <p>&copy; 2025 Ruel – All Rights Reserved</p>
-      </section>
-
-      <!-- Settings panel -->
-      <section class="tabpanel" id="settingsPanel">
-        <h2>Settings</h2>
-        <ul id="settingsList" class="settings-list">
-          <li>
-            <label for="trimStrategySelect">File Path Strategy:</label>
-            <select id="trimStrategySelect">
-              <option value="trim_all">Trim all /</option>
-              <option value="trim_first">Trim only the first /</option>
-            </select>
-          </li>
-          <li>
-            <label><input type="checkbox" id="optWhitespace" checked> Trim leading/trailing whitespace in document names</label>
-          </li>
-          <li>
-            <label><input type="checkbox" id="optNormalizeDates" checked> Normalize all dates to DD/MM/YYYY</label>
-          </li>
-          <li>
-            <label><input type="checkbox" id="optRemoveBanned" checked> Remove banned words from names</label>
-          </li>
-          <li>
-            <label for="themeSelect">Theme:</label>
-            <select id="themeSelect">
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-            </select>
-          </li>
-        </ul>
-      </section>
-
-
-      <!-- Change Log panel -->
-      <section class="tabpanel" id="changelogPanel">
-        <h2>Change Log</h2>
-        <!-- Change log content will be injected via JavaScript -->
-      </section>
-    </main>
-  </div>
-
-  <!-- Status -->
-  <div class="statusbar"><span id="status">Ready</span></div>
-
-<script>
-/* ------------------------------
-   State
------------------------------- */
-const state = {
-  files: /** @type {Array<{file:File, name:string, size:string, selected:boolean}>} */([]),
-  cleaned: /** @type {Array<{name:string, blob:Blob, text:string}>} */([]),
-};
-
-/* ------------------------------
-   Utilities (UI)
------------------------------- */
-const $ = sel => document.querySelector(sel);
-const $$ = sel => Array.from(document.querySelectorAll(sel));
-function setStatus(msg){ $('#status').textContent = msg; }
-function log(msg){
-  const logsContainer = document.getElementById('logs');
-  if(!logsContainer) return;
-  const entry = document.createElement('div');
-  entry.classList.add('log-entry');
-  const lower = String(msg).toLowerCase();
-  if(lower.includes('error')){
-    entry.classList.add('log-error');
-  } else if(lower.includes('saved')){
-    entry.classList.add('log-success');
-  } else if(lower.includes('added')){
-    entry.classList.add('log-success');
-  } else if(lower.includes('removed') || lower.includes('cleared') || lower.includes('unsupported')){
-    entry.classList.add('log-warning');
-  } else {
-    entry.classList.add('log-info');
-  }
-  entry.textContent = msg;
-  logsContainer.appendChild(entry);
-  logsContainer.scrollTop = logsContainer.scrollHeight;
-}
-function fmtSize(bytes){
-  const kb = bytes/1024;
-  return `${kb.toFixed(1)} KB`;
-}
-function renderFileList(){
-  const list = $('#fileList');
-  list.innerHTML = '';
-  state.files.forEach((f, idx)=>{
-    const div = document.createElement('div');
-    let classes = 'file-item';
-    if(f.selected) classes += ' selected';
-    if(f.justAdded) classes += ' just-added';
-    div.className = classes;
-    div.dataset.index = idx;
-    div.innerHTML = `
-      <div><strong>${escapeHtml(f.name)}</strong></div>
-      <div style="opacity:.8; font-size:12px;">${f.size}</div>
-    `;
-    div.addEventListener('click', ()=>{
-      state.files[idx].selected = !state.files[idx].selected;
-      renderFileList();
-    });
-    list.appendChild(div);
-  });
-}
-function renderOutputList(){
-  const out = $('#outputItems');
-  out.innerHTML = '';
-  state.cleaned.forEach((c, idx)=>{
-    const row = document.createElement('div');
-    row.className = 'output-item';
-    const fileName = c.name.endsWith('_cleaned.csv') ? c.name : `${c.name}_cleaned.csv`;
-    row.innerHTML = `
-      <div class="name" title="${escapeHtml(fileName)}">${escapeHtml(fileName)}</div>
-      <div class="actions">
-        <a href="#" data-idx="${idx}" class="download">Download</a>
-        <a href="#" data-idx="${idx}" class="preview">Preview</a>
-      </div>
-    `;
-    out.appendChild(row);
-  });
-
-  // actions
-  out.querySelectorAll('a.download').forEach(a=>{
-    a.addEventListener('click', (e)=>{
-      e.preventDefault();
-      const i = +a.dataset.idx;
-      const c = state.cleaned[i];
-      const fileName = c.name.endsWith('_cleaned.csv') ? c.name : `${c.name}_cleaned.csv`;
-      const url = URL.createObjectURL(c.blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-    });
-  });
-  out.querySelectorAll('a.preview').forEach(a=>{
-    a.addEventListener('click', (e)=>{
-      e.preventDefault();
-      const i = +a.dataset.idx;
-      const c = state.cleaned[i];
-      // Populate before and after preview panes
-      const beforeArea = document.getElementById('previewBefore');
-      const afterArea = document.getElementById('previewAfter');
-      // Use table-based preview for before and after snapshots
-      if(beforeArea){
-        renderCSVTable(beforeArea, c.origText || '');
-      }
-      if(afterArea){
-        renderCSVTable(afterArea, c.text || '');
-      }
-    });
-  });
-}
-
-/* ------------------------------
-   Event wiring
------------------------------- */
-$('#btnAdd').addEventListener('click', ()=> $('#fileInput').click());
-$('#menuAdd').addEventListener('click', ()=> $('#fileInput').click());
-$('#fileInput').addEventListener('change', onFilesSelected);
-
-$('#btnRemove').addEventListener('click', ()=>{
-  state.files = state.files.filter(f=>!f.selected);
-  renderFileList();
-  log('Removed selected files.');
-});
-$('#btnClear').addEventListener('click', ()=>{
-  state.files = [];
-  renderFileList();
-  log('Cleared file list.');
-});
-
-$('#btnStart').addEventListener('click', startCleaning);
-$('#menuStart').addEventListener('click', startCleaning);
-$('#menuToggleSidebar').addEventListener('click', ()=> {
-  const sb = $('#sidebar');
-  sb.style.display = (sb.style.display === 'none') ? '' : 'none';
-});
-
-/* Tabs */
-$$('.tab').forEach(tab=>{
-  tab.addEventListener('click', ()=>{
-    $$('.tab').forEach(t=>t.classList.remove('active'));
-    tab.classList.add('active');
-    const id = tab.dataset.tab;
-    $$('.tabpanel').forEach(p=>p.classList.remove('active'));
-    document.getElementById(id).classList.add('active');
-  });
-});
-
-/* Keyboard shortcuts */
-document.addEventListener('keydown', (e)=>{
-  if(e.ctrlKey && e.key.toLowerCase()==='o'){ e.preventDefault(); $('#fileInput').click(); }
-  if(e.ctrlKey && e.key.toLowerCase()==='r'){ e.preventDefault(); startCleaning(); }
-  if(e.ctrlKey && e.key.toLowerCase()==='b'){ e.preventDefault(); $('#menuToggleSidebar').click(); }
-});
-
-/* ------------------------------
-   File selection
------------------------------- */
-function onFilesSelected(ev){
-  const files = Array.from(ev.target.files || []);
-  let added = 0;
-  files.forEach(f=>{
-    if(!state.files.find(x=>x.name===f.name && x.file.size===f.size)){
-      // Mark as just added for highlight
-      state.files.push({file:f, name:f.name, size:fmtSize(f.size), selected:false, justAdded:true});
-      added++;
-    }
-  });
-  renderFileList();
-  if(added) log(`Added ${added} file(s).`);
-  ev.target.value = ''; // reset input
-
-  // If files were added, momentarily highlight the logs container
-  if(added){
-    const logsContainer = document.getElementById('logs');
-    if(logsContainer){
-      logsContainer.classList.add('new-log');
-      setTimeout(() => logsContainer.classList.remove('new-log'), 2000);
-    }
-  }
-
-  // Remove justAdded highlight after a short delay
-  if(added){
-    setTimeout(() => {
-      let changed = false;
-      state.files.forEach(item => {
-        if(item.justAdded){
-          item.justAdded = false;
-          changed = true;
-        }
-      });
-      if(changed) renderFileList();
-    }, 2500);
-  }
-
-  // Auto-populate the "Before" preview with the first newly added file's data
-  if(added){
-    // Determine the index of the first newly added file
-    const newIndex = state.files.length - added;
-    const fileObj = state.files[newIndex];
-    if(fileObj && fileObj.file){
-      loadPreviewForFile(fileObj.file).catch(() => {});
-    }
-  }
-}
-
-/* ------------------------------
-   Cleaning Logic (JS port)
------------------------------- */
-
-const BANNED_WORDS = new Set([
-  'MINISTRY','AGREEMENT','PROJECT','REPORT','AUDIT','DEPARTMENT','SERVICES','PROGRAMME',
-  'PROCUREMENT','IMPLEMENTING','FORCE','ASSOCIATION','EDUCATION','LOAN','FINANCING',
-  'HURRICANE','RELIEF','BANK','ACCOUNT','CABINET','SUBMISSION','COMMENTS','TRACKING',
-  'LETTER','DECISION','SUBMISSON'
-]);
-const DT_PREFIXES = ['MF','MFP','FILE','LOAN','LETTER','CABINET'];
-const DELIM_RE = /(?<=\s)-|-(?=\s)/g;
-
-// Trim strategy variables and helpers
-// Global variable storing the current file path trimming mode. Possible values: 'trim_all', 'trim_first'
-let trimStrategy = null;
-// Flags controlling optional cleaning behaviours
-let whitespaceEnabled = true;
-let normalizeDatesEnabled = true;
-let bannedWordsEnabled = true;
-
-/**
- * Trim a file path according to the selected strategy.
- * @param {string} path The original file path
- * @param {string} strategy Either 'trim_all' (remove all slashes) or 'trim_first' (remove the first leading slash)
- * @returns {string} The trimmed path
- */
-function trimFilePath(path, strategy = 'trim_all') {
-  if (!path) return '';
-  path = String(path).trim();
-  // When trim_all, we defer handling in clean_dataframe; return path unchanged
-  if (strategy === 'trim_all') {
-    return path;
-  } else if (strategy === 'trim_first') {
-    // Remove only the first leading slash or backslash
-    if (path.startsWith('/') || path.startsWith('\\')) {
-      return path.substring(1);
-    }
-    return path;
-  }
-  return path;
-}
-
-/**
- * Load the trim strategy from localStorage (if previously saved) and update UI selects.
- */
-function loadTrimStrategy() {
-  const stored = localStorage.getItem('trimStrategy');
-  trimStrategy = stored || null;
-  const sidebarSel = document.getElementById('sidebarTrimStrategySelect');
-  const settingsSel = document.getElementById('trimStrategySelect');
-  if (sidebarSel) {
-    sidebarSel.value = trimStrategy || '';
-  }
-  if (settingsSel) {
-    settingsSel.value = trimStrategy || '';
-  }
-}
-
-/**
- * Persist and propagate the trim strategy selection.
- * @param {string} value The chosen strategy
- */
-function updateTrimStrategy(value) {
-  trimStrategy = value;
-  localStorage.setItem('trimStrategy', value);
-  const sidebarSel = document.getElementById('sidebarTrimStrategySelect');
-  const settingsSel = document.getElementById('trimStrategySelect');
-  if (sidebarSel && sidebarSel.value !== value) sidebarSel.value = value;
-  if (settingsSel && settingsSel.value !== value) settingsSel.value = value;
-}
-
-function extract_file_number(doc_name){
-  if(!doc_name) return null;
-  let m = doc_name.match(/File\s*No:\s*([A-Za-z0-9/]+)/i);
-  if(m){
-    const val = m[1].trim();
-    return val.includes('/') ? val.split('/')[0] : val;
-  }
-  m = doc_name.match(/File\s*-\s*([A-Za-z0-9]+)/i);
-  if(m) return m[1].trim();
-  m = doc_name.match(/^\s*([0-9]{2,4})\/[0-9]{2,4}/);
-  if(m) return m[1];
-  return null;
-}
-function remove_leading_file_code(s){
-  return s.replace(/^\/\d{1,4}\s*/, '');
-}
-function extract_name_and_mda(doc_name, file_number, doc_type){
-  let s = (doc_name||'').trim();
-  const dt = (doc_type||'').trim();
-  if(dt && s.toUpperCase().endsWith(dt.toUpperCase())){
-    const idx = s.toUpperCase().lastIndexOf(dt.toUpperCase());
-    s = s.slice(0, idx).replace(/\s*-\s*$/,'').trim();
-  }
-  if(file_number){
-    const idx = s.toUpperCase().indexOf(file_number.toUpperCase());
-    if(idx !== -1) s = s.slice(idx + file_number.length);
-  }
-  s = s.replace(/^\s*-+\s*/,'');
-  s = remove_leading_file_code(s);
-
-  // Title handling: MR/MRS/MS/MISS
-  let m = s.match(/\b(MR|MRS|MS|MISS)\.?\s+/i);
-  if(m){
-    const after = s.slice(m.index + m[0].length).trim();
-    const parts = after.split(DELIM_RE).map(p=>p.trim()).filter(Boolean);
-    const candidate = parts.length ? parts[0] : after;
-    let tokens = candidate.split(/[\s\-]+/).filter(Boolean);
-    if(tokens.length > 3) tokens = tokens.slice(0,3);
-    const name = tokens.length ? tokens.join(' ').toUpperCase() : null;
-    let mda = null;
-    if(parts.length > 1){
-      const mda_candidate = parts.slice(1).join(' - ').trim();
-      if(mda_candidate) mda = mda_candidate.toUpperCase();
-    }
-    return {name, mda};
-  }
-
-  let parts = s.split(DELIM_RE).map(p=>p.trim()).filter(Boolean)
-               .filter(p => !/^\/\d{1,4}$/.test(p));
-
-  let name = null, mda = null;
-
-  for(let i=0;i<parts.length;i++){
-    const part = parts[i];
-    const up = part.toUpperCase();
-    if(DT_PREFIXES.some(pfx=>up.startsWith(pfx))) continue;
-    // Skip parts containing banned words only if bannedWordsEnabled is true
-    if(bannedWordsEnabled && Array.from(BANNED_WORDS).some(bad=>up.includes(bad))) continue;
-    let tokens = up.split(/[\s\-]+/).filter(Boolean);
-    if(tokens.length>=2 && tokens.length<=4 && tokens.filter(t=>/[A-Z]/.test(t)).length>=2){
-      if(tokens.length>3) tokens = tokens.slice(0,3);
-      name = tokens.join(' ');
-      // build MDA from remaining parts until a DT_PREFIX
-      const mda_parts = [];
-      for(let j=i+1;j<parts.length;j++){
-        const segUp = parts[j].toUpperCase();
-        if(DT_PREFIXES.some(pfx=>segUp.startsWith(pfx))) break;
-        mda_parts.push(parts[j].trim());
-      }
-      if(mda_parts.length) mda = mda_parts.join(' - ').trim().toUpperCase();
-      break;
-    }
-  }
-  if(!name){
-    const mda_parts=[];
-    for(const part of parts){
-      const up = part.toUpperCase();
-      if(DT_PREFIXES.some(pfx=>up.startsWith(pfx))) break;
-      mda_parts.push(part.trim());
-    }
-    if(mda_parts.length) mda = mda_parts.join(' - ').trim().toUpperCase();
-  }
-  return {name, mda};
-}
-function format_date(value){
-  if(value==null || value==='') return null;
-  // Attempt with dayjs; it handles numbers (Excel dates) poorly without plugin,
-  // but SheetJS will emit JS Date for xlsx, and Papa for CSV leaves strings.
-  let d;
-  if(value instanceof Date && !isNaN(value)) d = dayjs(value);
-  else {
-    // Try to coerce numerics like Excel serial? SheetJS gives Date by default when cellDates option is true;
-    // Here we rely on Date parsing fallback.
-    const tryD = dayjs(value);
-    d = tryD.isValid() ? tryD : null;
-  }
-  if(!d) return null;
-  return d.format('DD/MM/YYYY');
-}
-function normalizeColumns(dfRows){
-  // If required columns missing, try to infer/rename
-  // dfRows is array of row objects
-  const required = ['Document Name','File Path','Document Type Group','Date Stored','Document Type'];
-  if(dfRows.length===0) return dfRows;
-
-  // Build header mapping
-  const headers = Object.keys(dfRows[0]);
-  const rename = {};
-  headers.forEach(col=>{
-    const low = col.toLowerCase().trim();
-    if((low.startsWith('doc') && low.includes('name')) && !headers.includes('Document Name')) rename[col] = 'Document Name';
-    else if((low.startsWith('file') && low.includes('path')) && !headers.includes('File Path')) rename[col] = 'File Path';
-    else if(low.startsWith('document type group') && !headers.includes('Document Type Group')) rename[col] = 'Document Type Group';
-    else if((low.startsWith('date') && low.includes('stored')) && !headers.includes('Date Stored')) rename[col] = 'Date Stored';
-    else if(low.startsWith('document type') && !headers.includes('Document Type')) rename[col] = 'Document Type';
-  });
-
-  if(Object.keys(rename).length){
-    return dfRows.map(row=>{
-      const out = {...row};
-      for(const [from,to] of Object.entries(rename)){
-        if(from in out){ out[to] = out[from]; delete out[from]; }
-      }
-      return out;
-    });
-  }
-  return dfRows;
-}
-function clean_dataframe(dfRows){
-  const out = [];
-  for(const row of dfRows){
-    // Document name handling: optionally trim whitespace
-    let doc_name = String(row['Document Name'] ?? '');
-    if (whitespaceEnabled) {
-      doc_name = doc_name.trim();
-    }
-    // File path handling:
-    let originalPath = String(row['File Path'] ?? '');
-    originalPath = originalPath.trim();
-    let outputPath;
-    let file_name;
-    if (trimStrategy === 'trim_first') {
-      // Remove only the first leading slash/backslash and keep the rest of path
-      const trimmedPath = trimFilePath(originalPath, trimStrategy);
-      outputPath = trimmedPath;
-      file_name = trimmedPath ? trimmedPath.split(/[\\/]/).pop() : '';
-    } else {
-      // trim_all: extract only the file name (last segment)
-      file_name = originalPath ? originalPath.split(/[\\/]/).pop() : '';
-      outputPath = file_name;
-    }
-    const doc_type_group = String(row['Document Type Group'] ?? '').trim();
-    const date_val = row['Date Stored'];
-    const doc_type = String(row['Document Type'] ?? '').trim();
-    // Date normalization: if disabled, keep original value
-    const date_str = normalizeDatesEnabled ? format_date(date_val) : String(date_val ?? '');
-    const file_number = extract_file_number(doc_name);
-    const {name, mda} = extract_name_and_mda(doc_name, file_number, doc_type);
-    out.push({
-      'FolderName': 'OnBase Files',
-      'Document Name': doc_name,
-      'File Number': file_number ?? '',
-      'Name': name ?? '',
-      'MDA': mda ?? '',
-      'File Path': outputPath,
-      'Document Type Group': doc_type_group,
-      'Date Stored': date_str ?? '',
-      'Document Type': doc_type,
-    });
-  }
-  return out;
-}
-
-/* ------------------------------
-   Readers
------------------------------- */
-async function readFileAsArrayBuffer(file){
-  return new Promise((res, rej)=>{
-    const fr = new FileReader();
-    fr.onload = ()=> res(fr.result);
-    fr.onerror = rej;
-    fr.readAsArrayBuffer(file);
-  });
-}
-async function readFileAsText(file){
-  return new Promise((res, rej)=>{
-    const fr = new FileReader();
-    fr.onload = ()=> res(fr.result);
-    fr.onerror = rej;
-    fr.readAsText(file);
-  });
-}
-async function parseSpreadsheet(file){
-  // returns array of row objects
-  const ab = await readFileAsArrayBuffer(file);
-  const wb = XLSX.read(ab, {type:'array', cellDates:true});
-  const sheetName = wb.SheetNames[0];
-  const ws = wb.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json(ws, {defval:'', raw:true});
-  return rows;
-}
-async function parseCsv(file){
-  const text = await readFileAsText(file);
-  return new Promise((res, rej)=>{
-    Papa.parse(text, {
-      header: true,
-      skipEmptyLines: 'greedy',
-      complete: results => res(results.data),
-      error: err => rej(err)
-    });
-  });
-}
-
-/* ------------------------------
-   Cleaning Orchestrator
------------------------------- */
-async function startCleaning(){
-  if(state.files.length===0){
-    alert('Please add files to clean.');
-    return;
-  }
-  setStatus('Cleaning in progress…');
-  log('Starting cleaning process...');
-  state.cleaned = [];
-  // Clear both before and after preview areas before starting cleaning
-  const beforeAreaClear = document.getElementById('previewBefore');
-  if (beforeAreaClear) beforeAreaClear.innerHTML = '';
-  const afterAreaClear = document.getElementById('previewAfter');
-  if (afterAreaClear) afterAreaClear.innerHTML = '';
-  // Pull latest settings from UI
-  whitespaceEnabled = document.getElementById('optWhitespace') ? document.getElementById('optWhitespace').checked : true;
-  normalizeDatesEnabled = document.getElementById('optNormalizeDates') ? document.getElementById('optNormalizeDates').checked : true;
-  bannedWordsEnabled = document.getElementById('optRemoveBanned') ? document.getElementById('optRemoveBanned').checked : true;
-  // enforce that user selected a trim strategy
-  if(!trimStrategy){
-    alert('Please select a File Path Strategy via the sidebar dropdown or Settings tab before cleaning.');
-    setStatus('Ready');
-    return;
-  }
-  // Switch to Output tab when done
-  for(const item of state.files){
-    const ext = item.name.toLowerCase().split('.').pop();
-    try{
-      log(`Reading ${item.name}...`);
-      let rows;
-      if(['xlsx','xlsm','xls'].includes(ext)){
-        rows = await parseSpreadsheet(item.file);
-      }else if(['csv','txt'].includes(ext)){
-        rows = await parseCsv(item.file);
-      }else{
-        log(`Unsupported format: ${item.name}`);
-        continue;
-      }
-
-      // Column normalization
-      const maybeRenamed = normalizeColumns(rows);
-
-      // Check required columns
-      const required = ['Document Name','File Path','Document Type Group','Date Stored','Document Type'];
-      const missing = required.filter(c => !(c in (maybeRenamed[0] || {})));
-      if(missing.length){
-        log(`Attempting to infer missing columns for ${item.name} (missing: ${missing.join(', ')})`);
-      }
-
-      log('Cleaning data...');
-      // Show sample of original vs trimmed file paths for this file
-      try {
-        const samplePaths = maybeRenamed.slice(0, 5).map(r => String(r['File Path'] ?? '')).filter(p => p);
-        if (samplePaths.length) {
-          log('Sample trimmed file paths:');
-          samplePaths.forEach(pth => {
-            let trimmed;
-            if (trimStrategy === 'trim_first') {
-              trimmed = trimFilePath(String(pth).trim(), trimStrategy);
-            } else {
-              // trim_all: show only file name
-              trimmed = String(pth).trim().split(/[\\/]/).pop();
-            }
-            log(`${pth} -> ${trimmed}`);
-          });
-        }
-      } catch (sampleErr) {
-        // ignore errors in preview
-      }
-      const cleanedRows = clean_dataframe(maybeRenamed);
-
-      // Build original preview CSV (first 30 rows) and cleaned CSV
-      let origCsv = '';
-      try {
-        const origSample = maybeRenamed.slice(0, 30);
-        origCsv = Papa.unparse(origSample);
-      } catch (err) {
-        origCsv = '';
-      }
-      const csv = Papa.unparse(cleanedRows);
-      const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
-      const base = item.name.replace(/\.[^.]+$/,'');
-      const outName = `${base}_cleaned.csv`;
-      state.cleaned.push({name: outName, blob, text: csv, origText: origCsv});
-      log(`Saved cleaned: ${outName}`);
-    }catch(e){
-      console.error(e);
-      log(`Error processing ${item.name}: ${e.message || e}`);
-    }
-  }
-
-  if(state.cleaned.length){
-    log('Cleaning completed.');
-    setStatus('Cleaning finished.');
-    renderOutputList();
-    // Switch to Output tab
-    $$('.tab').forEach(t=>t.classList.remove('active'));
-    $$('.tabpanel').forEach(p=>p.classList.remove('active'));
-    document.querySelector('.tab[data-tab="outputPanel"]').classList.add('active');
-    $('#outputPanel').classList.add('active');
-
-    // Automatically populate preview for the first cleaned file
-    try {
-      const first = state.cleaned[0];
-      const beforeDiv = document.getElementById('previewBefore');
-      const afterDiv = document.getElementById('previewAfter');
-      if(first && beforeDiv && afterDiv){
-        renderCSVTable(beforeDiv, first.origText || '');
-        renderCSVTable(afterDiv, first.text || '');
-      }
-    } catch(autoErr) {
-      // ignore auto preview errors
-    }
-  }else{
-    log('No files were cleaned.');
-    setStatus('Ready');
-  }
-}
-
-/* ------------------------------
-   Helpers
------------------------------- */
-function escapeHtml(s){
-  return (s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-}
-
-/*
- * Render a CSV string into a table inside a container.
- * This function uses Papa.parse to parse the CSV string and constructs
- * an HTML table with borders to mimic a spreadsheet grid. Only the
- * first 31 lines (header + 30 rows) are displayed for preview.
- * @param {HTMLElement} container The element into which the table will be rendered.
- * @param {string} csvString The CSV data as a string.
- */
-function renderCSVTable(container, csvString){
-  if(!container){
-    return;
-  }
-  try{
-    // Parse the CSV string into an array of arrays
-    const result = Papa.parse(csvString, {header:false, skipEmptyLines:true});
-    const data = result.data || [];
-    // Limit to first 30 rows of data for preview (not counting header row)
-    const rows = data.slice(0, 30).map(r => r.map(cell => cell ?? ''));
-    // Determine number of columns
-    const numCols = rows[0] ? rows[0].length : 0;
-    // Helper to convert column index to Excel-like letters
-    function toColLabel(n){
-      let label = '';
-      while(n >= 0){
-        label = String.fromCharCode((n % 26) + 65) + label;
-        n = Math.floor(n / 26) - 1;
-      }
-      return label;
-    }
-    const table = document.createElement('table');
-    table.style.width = '100%';
-    table.style.borderCollapse = 'collapse';
-    // Column header row with letters
-    const colHeader = document.createElement('tr');
-    // Top-left blank corner
-    const corner = document.createElement('th');
-    corner.textContent = '';
-    corner.style.border = '1px solid #cccccc';
-    corner.style.background = '#e6f0ff';
-    colHeader.appendChild(corner);
-    for(let c = 0; c < numCols; c++){
-      const th = document.createElement('th');
-      th.textContent = toColLabel(c);
-      th.style.border = '1px solid #cccccc';
-      th.style.padding = '4px 6px';
-      th.style.whiteSpace = 'nowrap';
-      th.style.background = '#e6f0ff';
-      th.style.fontWeight = 'bold';
-      th.style.color = '#000000';
-      colHeader.appendChild(th);
-    }
-    table.appendChild(colHeader);
-    // Data rows with row numbers
-    rows.forEach((row, rowIndex) => {
-      const tr = document.createElement('tr');
-      // Row header with number
-      const rowHeader = document.createElement('th');
-      rowHeader.textContent = String(rowIndex + 1);
-      rowHeader.style.border = '1px solid #cccccc';
-      rowHeader.style.padding = '4px 6px';
-      rowHeader.style.whiteSpace = 'nowrap';
-      rowHeader.style.background = '#e6f0ff';
-      rowHeader.style.fontWeight = 'bold';
-      rowHeader.style.color = '#000000';
-      tr.appendChild(rowHeader);
-      row.forEach((cell, colIndex) => {
-        const td = document.createElement('td');
-        td.textContent = cell;
-        td.style.border = '1px solid #cccccc';
-        td.style.padding = '4px 6px';
-        td.style.whiteSpace = 'nowrap';
-        // Zebra striping for data cells
-        if((rowIndex % 2) === 0){
-          td.style.background = '#ffffff';
+    </div>
+    <!-- Status bar -->
+    <div class="statusbar" id="statusbar">Ready</div>
+    <script>
+      // Global state
+      let pyodideReady = false;
+      let pyodideInstance = null;
+      let cleanedData = [];
+      let fullFileBuffer = null;
+      let uniqueItems = [];
+      // Show appropriate tab
+      function showTab(tab) {
+        document.getElementById('tab-cleaner').classList.remove('active');
+        document.getElementById('tab-about').classList.remove('active');
+        document.getElementById('cleaner').style.display = 'none';
+        document.getElementById('about').style.display = 'none';
+        if (tab === 'cleaner') {
+          document.getElementById('tab-cleaner').classList.add('active');
+          document.getElementById('cleaner').style.display = 'block';
         } else {
-          td.style.background = '#f5f5f5';
+          document.getElementById('tab-about').classList.add('active');
+          document.getElementById('about').style.display = 'block';
         }
-        tr.appendChild(td);
-      });
-      table.appendChild(tr);
-    });
-    // Clear any previous content and append the new table
-    container.innerHTML = '';
-    container.appendChild(table);
-  } catch(err){
-    // In case of parsing error, fallback to plain text inside a preformatted element
-    container.innerHTML = '<pre style="white-space: pre-wrap;">'+escapeHtml(csvString)+'</pre>';
-  }
-}
-
-/**
- * Load and display a preview of the raw data for a given File object.
- * This function reads the file (Excel or CSV), extracts up to the first 30
- * rows, and renders them into the "Before" preview area using
- * renderCSVTable(). It leaves the "After" preview untouched until
- * cleaning occurs.
- * @param {File} file The file to preview
- */
-async function loadPreviewForFile(file){
-  try{
-    const ext = file.name.toLowerCase().split('.').pop();
-    let rows;
-    if(['xlsx','xlsm','xls'].includes(ext)){
-      rows = await parseSpreadsheet(file);
-    } else if(['csv','txt'].includes(ext)){
-      rows = await parseCsv(file);
-    } else {
-      return;
-    }
-    // Normalize columns names only for preview; do not apply cleaning logic
-    const maybeRenamed = normalizeColumns(rows);
-    const sample = maybeRenamed.slice(0, 30);
-    const csv = Papa.unparse(sample);
-    const beforeDiv = document.getElementById('previewBefore');
-    if(beforeDiv){
-      renderCSVTable(beforeDiv, csv);
-    }
-  } catch(err){
-    // If preview fails, leave the default header grid
-  }
-}
-
-/* ------------------------------
-   Init
------------------------------- */
-setStatus('Ready');
-log('Welcome! Add .xlsx/.xls/.csv files and click "Start Cleaning".');
-renderFileList();
-
-// Define change log history with dates and grouped entries
-const changeLogHistory = [
-  {
-    date: '2025-10-14',
-    entries: [
-      'Added before/after cleaning preview for comparison.',
-      'Added light/dark mode toggle in Settings.',
-      'Merged Home and Change Log tabs into a single non-dismissable Change Log tab.',
-      'Improved settings layout and prevented content overflow.'
-    ]
-  },
-  {
-    date: '2025-10-13',
-    entries: [
-      'Added file path strategy options (Trim all / or only the first slash).',
-      'Added Settings tab with additional cleaning toggles and responsive layout.',
-      'Added Download All button in the output panel.',
-      'Added Home and Change Log tabs with dismissible updates.'
-    ]
-  },
-  {
-    date: '2025-10-08',
-    entries: [
-      'Fixed file path trimming logic (handling backslashes and first-slash removal).',
-      'Initial release with core cleaning functions.'
-    ]
-  }
-];
-
-// Theme definitions for light and dark modes
-const themes = {
-  dark: {
-    '--bg': '#1E1E1E',
-    '--bg2': '#252526',
-    '--bg3': '#2D2D2D',
-    '--fg': '#D4D4D4',
-    '--accent': '#007ACC',
-    '--btn': '#0E639C',
-    '--btn-hover': '#1177BB',
-    '--btn-press': '#094771',
-    '--muted': '#666666',
-    '--border': '#2D2D2D'
-  },
-  light: {
-    '--bg': '#f5f5f5',
-    '--bg2': '#eeeeee',
-    '--bg3': '#e0e0e0',
-    '--fg': '#1E1E1E',
-    '--accent': '#007ACC',
-    '--btn': '#007ACC',
-    '--btn-hover': '#006BB3',
-    '--btn-press': '#005A99',
-    '--muted': '#666666',
-    '--border': '#cccccc'
-  }
-};
-
-function applyTheme(theme){
-  const root = document.documentElement;
-  const colors = themes[theme] || themes.dark;
-  Object.keys(colors).forEach(key => {
-    root.style.setProperty(key, colors[key]);
-  });
-}
-
-function loadTheme(){
-  const stored = localStorage.getItem('theme') || 'dark';
-  applyTheme(stored);
-  const themeSelect = document.getElementById('themeSelect');
-  if(themeSelect) themeSelect.value = stored;
-}
-
-function updateTheme(value){
-  applyTheme(value);
-  localStorage.setItem('theme', value);
-}
-
-// Render the change log list into the Change Log panel, skipping dismissed items stored in localStorage
-function renderChangeLog() {
-  const panel = document.getElementById('changelogPanel');
-  if (!panel) return;
-  // Clear panel and add heading
-  panel.innerHTML = '<h2>Change Log</h2>';
-  changeLogHistory.forEach(group => {
-    const h3 = document.createElement('h3');
-    h3.textContent = group.date;
-    h3.style.marginTop = '12px';
-    h3.style.marginBottom = '4px';
-    panel.appendChild(h3);
-    const ul = document.createElement('ul');
-    ul.style.listStyle = 'disc';
-    ul.style.paddingLeft = '20px';
-    group.entries.forEach(entry => {
-      const li = document.createElement('li');
-      li.style.marginBottom = '4px';
-      li.textContent = entry;
-      ul.appendChild(li);
-    });
-    panel.appendChild(ul);
-  });
-}
-
-// Render the home panel message, allowing dismissal
-
-// Initialize trim strategy from localStorage and set up listeners
-loadTrimStrategy();
-// Initialize theme from localStorage
-loadTheme();
-// Hook up change listeners for both strategy selects (sidebar and settings)
-const sidebarSelEl = document.getElementById('sidebarTrimStrategySelect');
-if (sidebarSelEl) {
-  sidebarSelEl.addEventListener('change', (e) => {
-    updateTrimStrategy(e.target.value);
-  });
-}
-const settingsSelEl = document.getElementById('trimStrategySelect');
-if (settingsSelEl) {
-  settingsSelEl.addEventListener('change', (e) => {
-    updateTrimStrategy(e.target.value);
-  });
-}
-
-// Attach change listener for theme selection
-const themeSelectEl = document.getElementById('themeSelect');
-if (themeSelectEl) {
-  themeSelectEl.addEventListener('change', (e) => {
-    updateTheme(e.target.value);
-  });
-}
-
-// Attach click handler for Download All button
-const downloadAllBtn = document.getElementById('btnDownloadAll');
-if (downloadAllBtn) {
-  downloadAllBtn.addEventListener('click', () => {
-    state.cleaned.forEach(c => {
-      const fileName = c.name.endsWith('_cleaned.csv') ? c.name : `${c.name}_cleaned.csv`;
-      const url = URL.createObjectURL(c.blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-    });
-  });
-}
-
-// Render change log on initial load
-renderChangeLog();
-
-// Render empty preview grids with headers before any files are loaded
-try {
-  const headerCSV = 'FolderName,Document Name,File Number,Name,MDA,File Path,Document Type Group,Date Stored,Document Type';
-  const beforeContainerInit = document.getElementById('previewBefore');
-  const afterContainerInit = document.getElementById('previewAfter');
-  if(beforeContainerInit) {
-    renderCSVTable(beforeContainerInit, headerCSV + '\n');
-  }
-  if(afterContainerInit) {
-    renderCSVTable(afterContainerInit, headerCSV + '\n');
-  }
-} catch(initErr) {
-  // ignore initialization errors
-}
-
-</script>
-</body>
+      }
+      // Update status bar
+      function updateStatus(text) {
+        document.getElementById('statusbar').textContent = text;
+      }
+      // Lazy-load Pyodide and required packages
+      async function ensurePyodide() {
+        if (pyodideReady) return;
+        updateStatus('Loading Pyodide…');
+        pyodideInstance = await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.25.1/full/' });
+        updateStatus('Installing pandas and openpyxl…');
+        await pyodideInstance.loadPackage(['pandas', 'openpyxl']);
+        pyodideReady = true;
+        updateStatus('Pyodide ready');
+      }
+      // Scan uploaded file for unique item numbers
+      async function scanItems() {
+        const fileInput = document.getElementById('file-input');
+        const file = fileInput.files[0];
+        if (!file) {
+          alert('Please select a file');
+          return;
+        }
+        updateStatus('Reading file…');
+        // Read file as ArrayBuffer
+        const arrayBuffer = await file.arrayBuffer();
+        fullFileBuffer = new Uint8Array(arrayBuffer);
+        updateStatus('Parsing workbook…');
+        try {
+          const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const sheet = workbook.Sheets[firstSheetName];
+          // Get rows as 2D array (no headers) to minimise memory usage
+          const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+          // find index of item number column heuristically: assume column with numeric or string values that appear in header or row0
+          let colIndex = 0;
+          // search header row for 'Item No'
+          if (data.length > 0) {
+            for (let i = 0; i < data[0].length; i++) {
+              const cell = (data[0][i] || '').toString().toLowerCase();
+              if (cell.includes('item') && cell.includes('no')) {
+                colIndex = i;
+                break;
+              }
+            }
+          }
+          const set = new Set();
+          // skip header row
+          for (let i = 1; i < data.length; i++) {
+            const val = data[i][colIndex];
+            if (val !== undefined && val !== null && val.toString().trim() !== '') {
+              set.add(val.toString().trim());
+            }
+          }
+          uniqueItems = Array.from(set).sort();
+          renderItemList(uniqueItems);
+          updateStatus('Found ' + uniqueItems.length + ' unique items');
+        } catch (e) {
+          console.error(e);
+          updateStatus('Error reading file');
+        }
+      }
+      // Render item list into the select element
+      function renderItemList(items) {
+        const listEl = document.getElementById('item-list');
+        listEl.innerHTML = '';
+        for (const item of items) {
+          const option = document.createElement('option');
+          option.value = item;
+          option.textContent = item;
+          listEl.appendChild(option);
+        }
+      }
+      // Filter item list based on search input
+      function filterItemList() {
+        const query = document.getElementById('item-search').value.toLowerCase();
+        const filtered = uniqueItems.filter(i => i.toLowerCase().includes(query));
+        renderItemList(filtered);
+      }
+      // Clean selected items using Pyodide (pandas)
+      async function cleanSelected() {
+        const file = fullFileBuffer;
+        if (!file) {
+          alert('Please upload and scan a file first');
+          return;
+        }
+        const selectEl = document.getElementById('item-list');
+        const selected = Array.from(selectEl.selectedOptions).map(opt => opt.value);
+        if (selected.length === 0) {
+          alert('Please select at least one item number to clean');
+          return;
+        }
+        await ensurePyodide();
+        updateStatus('Running Python cleaning script…');
+        // Define Python code to clean selected items
+        const code = `import pandas as pd, io, json\n` +
+          `data_bytes = bytes(data_bytes)\n` +
+          `df = pd.read_excel(io.BytesIO(data_bytes))\n` +
+          `# Normalize column names\n` +
+          `df.columns = [str(c).strip() for c in df.columns]\n` +
+          `# Rename columns heuristically if needed\n` +
+          `mapping = {\n` +
+          `    'Item No': 'Item No',\n` +
+          `    'Document Name': 'Document Name',\n` +
+          `    'File Path': 'File Path',\n` +
+          `    'Document Type Group': 'Document Type Group',\n` +
+          `    'Date Stored': 'Date Stored',\n` +
+          `    'Document Type': 'Document Type'\n` +
+          `}\n` +
+          `df = df.rename(columns={c: mapping.get(c, c) for c in df.columns})\n` +
+          `# Ensure string type and strip whitespace\n` +
+          `for col in df.columns:\n` +
+          `    df[col] = df[col].astype(str).str.strip()\n` +
+          `selected = json.loads(selected_json)\n` +
+          `df = df[df['Item No'].isin(selected)]\n` +
+          `grouped = (df.groupby(['Item No','Document Name','Document Type Group','Date Stored','Document Type'], as_index=False)\n` +
+          `             .agg({'File Path': lambda x: '; '.join(sorted(set(x)))})\n` +
+          `            )\n` +
+          `result = grouped.to_dict(orient='records')\n`;
+        try {
+          const result = await pyodideInstance.runPythonAsync(code, {
+            data_bytes: file,
+            selected_json: JSON.stringify(selected)
+          });
+          // convert Python list of dicts to JS array
+          cleanedData = result.toJs();
+          renderResults(cleanedData);
+          document.getElementById('download-btn').disabled = false;
+          updateStatus('Cleaning complete. Found ' + cleanedData.length + ' records');
+        } catch (err) {
+          console.error(err);
+          updateStatus('Python error: ' + err);
+        }
+      }
+      // Render cleaned results into the table
+      function renderResults(data) {
+        const headerEl = document.getElementById('results-header');
+        const bodyEl = document.getElementById('results-body');
+        headerEl.innerHTML = '';
+        bodyEl.innerHTML = '';
+        if (!data || data.length === 0) {
+          return;
+        }
+        // Determine columns from first record
+        const cols = Object.keys(data[0]);
+        for (const col of cols) {
+          const th = document.createElement('th');
+          th.textContent = col;
+          headerEl.appendChild(th);
+        }
+        for (const row of data) {
+          const tr = document.createElement('tr');
+          for (const col of cols) {
+            const td = document.createElement('td');
+            td.textContent = row[col];
+            tr.appendChild(td);
+          }
+          bodyEl.appendChild(tr);
+        }
+      }
+      // Filter cleaned results based on search input
+      function filterResults() {
+        const query = document.getElementById('search-input').value.toLowerCase();
+        const filtered = cleanedData.filter(row => {
+          return Object.values(row).some(val => val.toLowerCase().includes(query));
+        });
+        renderResults(filtered);
+      }
+      // Download cleaned data as zipped Excel file
+      async function downloadCleaned() {
+        if (!cleanedData || cleanedData.length === 0) {
+          alert('No cleaned data to download');
+          return;
+        }
+        updateStatus('Preparing download…');
+        // Convert cleanedData to worksheet and workbook
+        const worksheet = XLSX.utils.json_to_sheet(cleanedData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, worksheet, 'Cleaned');
+        const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+        // Zip using JSZip
+        const zip = new JSZip();
+        zip.file('cleaned.xlsx', wbout);
+        const blob = await zip.generateAsync({ type: 'blob' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'cleaned.zip';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        updateStatus('Download ready');
+      }
+    </script>
+  </body>
 </html>
