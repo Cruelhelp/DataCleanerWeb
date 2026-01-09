@@ -3,17 +3,41 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Document Cleaner with Pyodide</title>
+    <title>Supabase Document Cleaner</title>
     <!--
-      This HTML document demonstrates how to wrap Python code in a browser using
-      Pyodide.  The interface is similar to the previous VS Code‑inspired
-      cleaners, but instead of relying on SheetJS alone to process data,
-      selected rows are passed to a Python script (running in WebAssembly)
-      which performs the grouping and deduplication using pandas.  Because
-      Pyodide runs inside the browser, we expose controls that let the user
-      choose which records to process to avoid loading the entire workbook into
-      memory at once.  A simple compression step uses JSZip to pack the
-      cleaned Excel file into a zip archive for download.
+      Supabase Document Cleaner
+
+      This application replaces the in‑browser Pandas implementation with a server
+      side approach powered by Supabase.  Large spreadsheets are uploaded to a
+      temporary bucket on Supabase and processed by an Edge Function.  Each
+      import is tracked with a unique session ID (backed by the csv_jobs table),
+      and detailed logs are streamed back to the browser via Postgres
+      subscriptions.  The cleaned records live only for the lifetime of a
+      session; deleting the session removes all data and uploaded files.  This
+      design ensures that no potentially sensitive content remains in the cloud
+      beyond your workflow and avoids exhausting the browser’s memory when
+      handling large CSV files.
+
+      To deploy this front‑end you will need:
+        1. A Supabase project with the tables and policies described in the
+           documentation (see the README in this repository or the answer
+           instructions for the required SQL).  In particular the tables
+           csv_jobs, csv_job_logs and cleaned_records must exist with row
+           level security enabled and policies that allow anonymous inserts
+           and selects.
+        2. An Edge Function named `process_csv` that reads a CSV from the
+           `raw_uploads` bucket, filters rows by item number, groups paths
+           and writes results to the cleaned_records table, logging progress
+           to csv_job_logs and updating the job status in csv_jobs.
+      
+      In this file we embed the VS Code‑inspired dark theme, the Supabase
+      client library, SheetJS for quick local scanning of a few values, and
+      JSZip for compressing the final Excel file on demand.  The UI allows
+      users to upload a raw export, scan for unique item numbers, choose a
+      subset to process, start the job, monitor logs in real time and then
+      download the cleaned data.  A Delete Session button removes all traces
+      of the data from Supabase.  Caching in memory prevents redundant
+      downloads when re‑filtering or searching.
     -->
     <style>
       /* VS Code–inspired dark theme */
@@ -31,7 +55,6 @@
         --danger: #f14c4c;
         --radius: 6px;
         --font-body: "Segoe UI", "Arial", "Helvetica Neue", Helvetica, sans-serif;
-        --font-display: "Segoe UI", "Arial", "Helvetica Neue", Helvetica, sans-serif;
       }
       * { box-sizing: border-box; }
       html, body { height: 100%; }
@@ -42,7 +65,6 @@
         font-family: var(--font-body);
         overflow: hidden;
       }
-      /* Top menubar with tabs */
       .menubar {
         height: 40px;
         background: var(--bg);
@@ -88,7 +110,7 @@
         text-transform: uppercase;
         letter-spacing: 0.08em;
       }
-      .sidebar input[type="text"], .sidebar select, .sidebar button {
+      .sidebar input[type="file"], .sidebar select, .sidebar button {
         width: 100%;
         padding: 8px;
         margin-top: 6px;
@@ -98,372 +120,495 @@
         color: var(--fg);
       }
       .sidebar button {
-        background: var(--btn);
-        border: none;
         cursor: pointer;
-        font-size: 14px;
       }
-      .sidebar button:hover { background: var(--btn-hover); }
-      .sidebar button:active { background: var(--btn-press); }
-      .main {
+      .sidebar button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .content {
         flex: 1;
         display: flex;
         flex-direction: column;
         overflow: hidden;
       }
-      .main-header {
-        padding: 16px;
-        border-bottom: 1px solid var(--border);
+      .toolbar {
+        padding: 12px;
         background: var(--bg2);
-      }
-      .main-header h1 {
-        margin: 0;
-        font-size: 20px;
-        color: #ffffff;
-      }
-      .statusbar {
-        height: 26px;
-        background: var(--accent);
-        color: #ffffff;
-        position: fixed;
-        left: 0;
-        right: 0;
-        bottom: 0;
+        border-bottom: 1px solid var(--border);
         display: flex;
+        gap: 10px;
         align-items: center;
-        padding: 0 12px;
-        font-size: 12px;
       }
-      .panel {
-        padding: 16px;
+      .toolbar input[type="text"] {
         flex: 1;
-        overflow-y: auto;
-      }
-      table {
-        width: 100%;
-        border-collapse: collapse;
-      }
-      th, td {
-        text-align: left;
-        padding: 8px;
-        border-bottom: 1px solid var(--border);
-      }
-      th {
-        position: sticky;
-        top: 0;
-        background: var(--bg2);
-      }
-      /* A simple search input in main area */
-      .search-bar {
-        margin-bottom: 12px;
-        display: flex;
-        gap: 8px;
-      }
-      .search-bar input {
-        flex: 1;
-        padding: 8px;
+        padding: 6px;
         border: 1px solid var(--border);
         border-radius: var(--radius);
         background: var(--bg3);
         color: var(--fg);
       }
-      .search-bar button {
-        padding: 8px 12px;
-        border: none;
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      thead {
+        position: sticky;
+        top: 0;
+        background: var(--bg2);
+        z-index: 2;
+      }
+      th, td {
+        padding: 6px 8px;
+        border-bottom: 1px solid var(--border);
+        font-size: 13px;
+      }
+      tbody tr:hover {
+        background: var(--bg3);
+      }
+      .logs {
+        height: 150px;
+        overflow-y: auto;
+        background: var(--bg2);
+        padding: 8px;
+        border-top: 1px solid var(--border);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+      .status-bar {
+        height: 26px;
+        background: var(--bg3);
+        border-top: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        padding: 0 10px;
+        font-size: 12px;
+        justify-content: space-between;
+      }
+      .hidden { display: none; }
+      .dropdown {
+        width: 100%;
+        padding: 6px;
+        border: 1px solid var(--border);
         border-radius: var(--radius);
-        background: var(--btn);
-        color: #fff;
-        cursor: pointer;
+        background: var(--bg3);
+        color: var(--fg);
       }
     </style>
-    <!-- SheetJS for Excel parsing/writing -->
-    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
-    <!-- JSZip for compression -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
-    <!-- Pyodide for running Python in the browser -->
-    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
   </head>
   <body>
-    <!-- Top menu bar -->
     <div class="menubar">
-      <div id="tab-cleaner" class="menu-item active" onclick="showTab('cleaner')">Cleaner</div>
-      <div id="tab-about" class="menu-item" onclick="showTab('about')">About</div>
+      <div class="menu-item active" id="tab-cleaner" onclick="selectTab('cleaner')">Cleaner</div>
+      <div class="menu-item" id="tab-about" onclick="selectTab('about')">About</div>
     </div>
-    <!-- Main application container -->
     <div class="app">
-      <!-- Sidebar for controls -->
-      <div class="sidebar" id="sidebar">
-        <h2>Upload File</h2>
-        <input type="file" id="file-input" accept=".xlsx,.xls,.csv" />
-        <button id="scan-btn" onclick="scanItems()">Scan Items</button>
-        <h2>Item Filter</h2>
-        <input type="text" id="item-search" placeholder="Search item numbers" oninput="filterItemList()" />
-        <select id="item-list" multiple size="10" style="height: 200px;"></select>
-        <button id="clean-btn" onclick="cleanSelected()">Clean Selected</button>
-        <button id="download-btn" onclick="downloadCleaned()" disabled>Download Cleaned (zip)</button>
-      </div>
-      <!-- Main area containing either the cleaner UI or the about text -->
-      <div class="main" id="main">
-        <!-- Cleaner content -->
-        <div id="cleaner" class="panel">
-          <div class="main-header">
-            <h1>Interactive Cleaner (Pyodide)</h1>
-          </div>
-          <div class="search-bar">
-            <input type="text" id="search-input" placeholder="Search cleaned data" oninput="filterResults()" />
-          </div>
-          <div style="overflow-y:auto; max-height: calc(100vh - 200px);">
-            <table id="results-table">
-              <thead>
-                <tr id="results-header"></tr>
-              </thead>
-              <tbody id="results-body"></tbody>
-            </table>
-          </div>
+      <div class="sidebar" id="sidebar-cleaner">
+        <h2>1. Upload Raw Export</h2>
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" />
+        <button id="scanBtn" onclick="scanItems()">Scan Items</button>
+        <div id="sessionInfo" class="hidden">
+          <h2>Session</h2>
+          <div id="sessionIdDisplay"></div>
+          <button id="deleteSessionBtn" onclick="deleteSession()">Delete Session</button>
         </div>
-        <!-- About content -->
-        <div id="about" class="panel" style="display:none;">
-          <div class="main-header">
-            <h1>About this Tool</h1>
-          </div>
-          <p>This data cleaner combines the functionality of a grouping tool and a manual trimming
-             tool into a single interface.  It uses the Pyodide project to run
-             Python in the browser, allowing the same pandas logic used on the
-             server to run client‑side.  After you upload an Excel or CSV file,
-             the <em>Scan Items</em> button will analyse the file and present a list of item
-             numbers.  You can select the items you care about, and only those
-             records will be passed into the Python runtime for cleaning.
+        <h2>2. Select Item Numbers</h2>
+        <select id="itemSelect" class="dropdown" multiple size="8"></select>
+        <button id="cleanBtn" onclick="cleanSelected()" disabled>Clean Selected</button>
+      </div>
+      <div class="content" id="content-cleaner">
+        <div class="toolbar">
+          <input type="text" id="searchInput" placeholder="Search in cleaned results..." oninput="filterResults()" disabled />
+          <button id="downloadBtn" onclick="downloadCleaned()" disabled>Download Cleaned</button>
+        </div>
+        <div style="flex:1; overflow:auto;">
+          <table id="resultTable">
+            <thead>
+              <tr>
+                <th>Item No</th>
+                <th>Document Name</th>
+                <th>File Paths</th>
+                <th>Type Group</th>
+                <th>Date Stored</th>
+                <th>Document Type</th>
+              </tr>
+            </thead>
+            <tbody id="resultBody"></tbody>
+          </table>
+        </div>
+        <div class="logs" id="logPanel"></div>
+      </div>
+      <!-- About Tab -->
+      <div class="content hidden" id="content-about">
+        <div style="padding: 12px; overflow-y:auto; height:100%;">
+          <h1>About This Cleaner</h1>
+          <p>
+            This application uses <strong>Supabase</strong> to process large CSV and
+            Excel exports without exhausting your browser’s memory.  When you
+            upload a file, it is streamed to a private <em>raw_uploads</em> bucket
+            inside your Supabase project.  A unique session ID is generated and
+            recorded in the <code>csv_jobs</code> table; this ID is displayed in
+            the sidebar so you can track your session.  You then select which
+            item numbers to clean.  When you press <strong>Clean Selected</strong>, an
+            Edge Function named <code>process_csv</code> runs on the server: it
+            reads your uploaded file, filters rows by item number, groups and
+            deduplicates file paths using SQL, and writes results into the
+            <code>cleaned_records</code> table.  Progress messages are inserted
+            into <code>csv_job_logs</code>, which stream live into the log panel via
+            Supabase Realtime.  Once complete, the browser fetches the cleaned
+            records and displays them in an interactive table.  You can search
+            within the results and download the data as an Excel file.  When you
+            delete a session, all rows and files associated with that session
+            are removed from your database and storage buckets.
           </p>
-          <p>By choosing specific items instead of processing the entire export,
-             you avoid exhausting the browser’s memory.  The cleaned records are
-             grouped by item number, document name, document type group, date stored
-             and document type, and all file paths are consolidated.  The results
-             appear in the table on the Cleaner tab and may be downloaded as a
-             compressed Excel file.</p>
-          <p>This client‑side approach removes the need for a separate grouping app or
-             manual cleanup—everything runs in your browser.  However, be aware
-             that browsers impose strict memory limits【79604301145918†L152-L155】, so
-             processing very large datasets can still be slow or may fail.  When
-             dealing with heavy workloads, we recommend running the cleaning
-             script in a desktop environment instead.</p>
+          <p>
+            <strong>Why use Supabase?</strong>  Prior versions of this cleaner relied
+            on running Python in the browser via Pyodide.  While convenient for
+            small files, it struggled with large datasets and could crash the
+            tab.  Offloading work to a server means you can handle much larger
+            exports without putting a strain on your computer.  Supabase
+            automatically scales and enforces row‑level security, ensuring that
+            only data belonging to your session is accessible.  The lifecycle
+            rules you set on your buckets determine when files are deleted
+            automatically, so you never have to worry about leaving data
+            behind.  A combination of server processing and local search
+            caching gives you the best of both worlds: heavy work happens
+            remotely, while searching through results is instantaneous.
+          </p>
+          <p>
+            <strong>Tables and Policies:</strong>  This tool expects the following
+            tables in your Supabase database:
+          </p>
+          <ul>
+            <li>
+              <code>csv_jobs</code> – tracks each upload with fields
+              <code>id</code> (uuid primary key), <code>filename</code>, <code>status</code>,
+              <code>created_at</code>, <code>completed_at</code> and <code>error</code>.
+            </li>
+            <li>
+              <code>csv_job_logs</code> – stores log messages for each job
+              (foreign key <code>job_id</code> → <code>csv_jobs.id</code>) and a
+              timestamp.
+            </li>
+            <li>
+              <code>cleaned_records</code> – temporary table holding cleaned
+              rows with fields for item number, document name, file paths, type
+              group, date stored and document type.  Each record is tied to
+              <code>job_id</code> so it can be deleted when the session ends.
+            </li>
+          </ul>
+          <p>
+            Row level security should be enabled on all three tables.  Policies
+            should allow anonymous users to insert new rows and select rows
+            pertaining to their own job ID.  The Edge Function uses a service
+            role key to bypass RLS so it can write logs and cleaned data.  See
+            the SQL section in the instructions for the exact DDL and policy
+            definitions.  By default the publishable key included in this
+            template only allows reading and inserting into the allowed tables.
+          </p>
+          <p>
+            To prevent reloading the same data repeatedly, the cleaned results
+            are cached in memory on the client.  Searching or filtering the
+            results operates on this local cache, so you can quickly explore
+            your data without hitting the database again.  When you start
+            another cleaning job, the cache is cleared.
+          </p>
         </div>
       </div>
     </div>
-    <!-- Status bar -->
-    <div class="statusbar" id="statusbar">Ready</div>
-    <script>
-      // Global state
-      let pyodideReady = false;
-      let pyodideInstance = null;
-      let cleanedData = [];
-      let fullFileBuffer = null;
-      let uniqueItems = [];
-      // Show appropriate tab
-      function showTab(tab) {
-        document.getElementById('tab-cleaner').classList.remove('active');
-        document.getElementById('tab-about').classList.remove('active');
-        document.getElementById('cleaner').style.display = 'none';
-        document.getElementById('about').style.display = 'none';
-        if (tab === 'cleaner') {
-          document.getElementById('tab-cleaner').classList.add('active');
-          document.getElementById('cleaner').style.display = 'block';
-        } else {
-          document.getElementById('tab-about').classList.add('active');
-          document.getElementById('about').style.display = 'block';
+    <div class="status-bar" id="statusBar">
+      Ready.
+    </div>
+
+    <!-- External libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script type="module">
+      import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.38.2/+esm';
+
+      // Initialise Supabase client using credentials provided by the user.
+      const supabaseUrl = 'https://axkfsvaltwwpihwrdefw.supabase.co';
+      const supabaseKey = 'sb_publishable_R26Ofyljfp7uHUP2FnldRA_dX1bi7np';
+      const supa = createClient(supabaseUrl, supabaseKey, {
+        auth: {
+          persistSession: false // do not store session in local storage
         }
+      });
+
+      // Global state
+      let sessionId = null;
+      let filePath = null;
+      let cleanedData = [];
+      let logsChannel = null;
+      let jobStatus = null;
+      let cache = null; // to hold cached results for current session
+
+      // UI helpers
+      function setStatus(msg) {
+        document.getElementById('statusBar').textContent = msg;
       }
-      // Update status bar
-      function updateStatus(text) {
-        document.getElementById('statusbar').textContent = text;
+      function appendLog(msg) {
+        const logPanel = document.getElementById('logPanel');
+        logPanel.textContent += msg + '\n';
+        logPanel.scrollTop = logPanel.scrollHeight;
       }
-      // Lazy-load Pyodide and required packages
-      async function ensurePyodide() {
-        if (pyodideReady) return;
-        updateStatus('Loading Pyodide…');
-        pyodideInstance = await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.25.1/full/' });
-        updateStatus('Installing pandas and openpyxl…');
-        await pyodideInstance.loadPackage(['pandas', 'openpyxl']);
-        pyodideReady = true;
-        updateStatus('Pyodide ready');
+      function clearLogs() {
+        document.getElementById('logPanel').textContent = '';
       }
-      // Scan uploaded file for unique item numbers
-      async function scanItems() {
-        const fileInput = document.getElementById('file-input');
+
+      // Tab switching
+      window.selectTab = function(tab) {
+        document.getElementById('tab-cleaner').classList.toggle('active', tab === 'cleaner');
+        document.getElementById('tab-about').classList.toggle('active', tab === 'about');
+        document.getElementById('sidebar-cleaner').classList.toggle('hidden', tab !== 'cleaner');
+        document.getElementById('content-cleaner').classList.toggle('hidden', tab !== 'cleaner');
+        document.getElementById('content-about').classList.toggle('hidden', tab !== 'about');
+      };
+
+      // Scan the selected file for unique item numbers and create a job
+      window.scanItems = async function() {
+        const fileInput = document.getElementById('fileInput');
         const file = fileInput.files[0];
         if (!file) {
-          alert('Please select a file');
+          alert('Please choose a file first.');
           return;
         }
-        updateStatus('Reading file…');
-        // Read file as ArrayBuffer
-        const arrayBuffer = await file.arrayBuffer();
-        fullFileBuffer = new Uint8Array(arrayBuffer);
-        updateStatus('Parsing workbook…');
+        setStatus('Scanning file for unique item numbers…');
+        // Reset UI
+        document.getElementById('itemSelect').innerHTML = '';
+        document.getElementById('cleanBtn').disabled = true;
+        document.getElementById('searchInput').disabled = true;
+        document.getElementById('downloadBtn').disabled = true;
+        clearLogs();
+
+        // Read only first sheet or CSV to gather item numbers
+        const buf = await file.arrayBuffer();
+        let workbook;
         try {
-          const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-          const firstSheetName = workbook.SheetNames[0];
-          const sheet = workbook.Sheets[firstSheetName];
-          // Get rows as 2D array (no headers) to minimise memory usage
-          const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-          // find index of item number column heuristically: assume column with numeric or string values that appear in header or row0
-          let colIndex = 0;
-          // search header row for 'Item No'
-          if (data.length > 0) {
-            for (let i = 0; i < data[0].length; i++) {
-              const cell = (data[0][i] || '').toString().toLowerCase();
-              if (cell.includes('item') && cell.includes('no')) {
-                colIndex = i;
-                break;
-              }
-            }
-          }
-          const set = new Set();
-          // skip header row
-          for (let i = 1; i < data.length; i++) {
-            const val = data[i][colIndex];
-            if (val !== undefined && val !== null && val.toString().trim() !== '') {
-              set.add(val.toString().trim());
-            }
-          }
-          uniqueItems = Array.from(set).sort();
-          renderItemList(uniqueItems);
-          updateStatus('Found ' + uniqueItems.length + ' unique items');
-        } catch (e) {
-          console.error(e);
-          updateStatus('Error reading file');
-        }
-      }
-      // Render item list into the select element
-      function renderItemList(items) {
-        const listEl = document.getElementById('item-list');
-        listEl.innerHTML = '';
-        for (const item of items) {
-          const option = document.createElement('option');
-          option.value = item;
-          option.textContent = item;
-          listEl.appendChild(option);
-        }
-      }
-      // Filter item list based on search input
-      function filterItemList() {
-        const query = document.getElementById('item-search').value.toLowerCase();
-        const filtered = uniqueItems.filter(i => i.toLowerCase().includes(query));
-        renderItemList(filtered);
-      }
-      // Clean selected items using Pyodide (pandas)
-      async function cleanSelected() {
-        const file = fullFileBuffer;
-        if (!file) {
-          alert('Please upload and scan a file first');
-          return;
-        }
-        const selectEl = document.getElementById('item-list');
-        const selected = Array.from(selectEl.selectedOptions).map(opt => opt.value);
-        if (selected.length === 0) {
-          alert('Please select at least one item number to clean');
-          return;
-        }
-        await ensurePyodide();
-        updateStatus('Running Python cleaning script…');
-        // Define Python code to clean selected items
-        const code = `import pandas as pd, io, json\n` +
-          `data_bytes = bytes(data_bytes)\n` +
-          `df = pd.read_excel(io.BytesIO(data_bytes))\n` +
-          `# Normalize column names\n` +
-          `df.columns = [str(c).strip() for c in df.columns]\n` +
-          `# Rename columns heuristically if needed\n` +
-          `mapping = {\n` +
-          `    'Item No': 'Item No',\n` +
-          `    'Document Name': 'Document Name',\n` +
-          `    'File Path': 'File Path',\n` +
-          `    'Document Type Group': 'Document Type Group',\n` +
-          `    'Date Stored': 'Date Stored',\n` +
-          `    'Document Type': 'Document Type'\n` +
-          `}\n` +
-          `df = df.rename(columns={c: mapping.get(c, c) for c in df.columns})\n` +
-          `# Ensure string type and strip whitespace\n` +
-          `for col in df.columns:\n` +
-          `    df[col] = df[col].astype(str).str.strip()\n` +
-          `selected = json.loads(selected_json)\n` +
-          `df = df[df['Item No'].isin(selected)]\n` +
-          `grouped = (df.groupby(['Item No','Document Name','Document Type Group','Date Stored','Document Type'], as_index=False)\n` +
-          `             .agg({'File Path': lambda x: '; '.join(sorted(set(x)))})\n` +
-          `            )\n` +
-          `result = grouped.to_dict(orient='records')\n`;
-        try {
-          const result = await pyodideInstance.runPythonAsync(code, {
-            data_bytes: file,
-            selected_json: JSON.stringify(selected)
-          });
-          // convert Python list of dicts to JS array
-          cleanedData = result.toJs();
-          renderResults(cleanedData);
-          document.getElementById('download-btn').disabled = false;
-          updateStatus('Cleaning complete. Found ' + cleanedData.length + ' records');
+          workbook = XLSX.read(buf, { type: 'array' });
         } catch (err) {
           console.error(err);
-          updateStatus('Python error: ' + err);
-        }
-      }
-      // Render cleaned results into the table
-      function renderResults(data) {
-        const headerEl = document.getElementById('results-header');
-        const bodyEl = document.getElementById('results-body');
-        headerEl.innerHTML = '';
-        bodyEl.innerHTML = '';
-        if (!data || data.length === 0) {
+          setStatus('Failed to parse file.');
           return;
         }
-        // Determine columns from first record
-        const cols = Object.keys(data[0]);
-        for (const col of cols) {
-          const th = document.createElement('th');
-          th.textContent = col;
-          headerEl.appendChild(th);
+        // Take first sheet
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const data = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+        // Find column index for Item No by searching header row (first non-empty row)
+        let header = data.find(row => row.some(cell => cell !== '')) || [];
+        let itemIndex = header.findIndex(cell => /item.*no/i.test(String(cell)));
+        if (itemIndex === -1) itemIndex = 0; // fallback to first column
+        const unique = new Set();
+        for (let i = 1; i < data.length; i++) {
+          const val = String(data[i][itemIndex]).trim();
+          if (val) unique.add(val);
+          // Limit scanning to first 2000 rows to avoid memory pressure
+          if (unique.size > 200 && i > 2000) break;
         }
-        for (const row of data) {
-          const tr = document.createElement('tr');
-          for (const col of cols) {
-            const td = document.createElement('td');
-            td.textContent = row[col];
-            tr.appendChild(td);
+
+        const items = Array.from(unique).sort();
+        // Create or update session
+        // If no session exists, insert a new job row
+        let jobResponse;
+        if (!sessionId) {
+          jobResponse = await supa.from('csv_jobs').insert({ filename: file.name, status: 'uploaded' }).select().single();
+          if (jobResponse.error) {
+            alert('Failed to create job: ' + jobResponse.error.message);
+            setStatus('Failed to create session.');
+            return;
           }
-          bodyEl.appendChild(tr);
+          sessionId = jobResponse.data.id;
         }
+        // Build file path: use sessionId as folder
+        filePath = `${sessionId}/${file.name}`;
+        // Upload file to raw_uploads bucket
+        const { error: uploadErr } = await supa.storage.from('raw_uploads').upload(filePath, file, { contentType: file.type, upsert: true });
+        if (uploadErr) {
+          alert('Upload failed: ' + uploadErr.message);
+          setStatus('Failed to upload.');
+          return;
+        }
+        // Show session info
+        document.getElementById('sessionInfo').classList.remove('hidden');
+        document.getElementById('sessionIdDisplay').textContent = sessionId;
+        // Populate select list
+        const select = document.getElementById('itemSelect');
+        items.forEach(it => {
+          const opt = document.createElement('option');
+          opt.value = it;
+          opt.textContent = it;
+          select.appendChild(opt);
+        });
+        document.getElementById('cleanBtn').disabled = items.length === 0;
+        setStatus(`Found ${items.length} unique item numbers. Ready to clean.`);
+      };
+
+      // Invoke the Edge Function to clean selected items
+      window.cleanSelected = async function() {
+        const options = Array.from(document.getElementById('itemSelect').selectedOptions);
+        const selected = options.map(o => o.value);
+        if (selected.length === 0) {
+          alert('Please select at least one item number to clean.');
+          return;
+        }
+        setStatus('Invoking cleaning job…');
+        clearLogs();
+        // Subscribe to logs for this session
+        if (logsChannel) {
+          supa.removeChannel(logsChannel);
+        }
+        logsChannel = supa.channel('job_logs_' + sessionId)
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'csv_job_logs', filter: 'job_id=eq.' + sessionId }, payload => {
+            const message = payload.new.message;
+            appendLog(message);
+          })
+          .subscribe();
+        // Start job via Edge Function
+        try {
+          const { data, error } = await supa.functions.invoke('process_csv', {
+            body: { job_id: sessionId, file_path: filePath, item_numbers: selected }
+          });
+          if (error) {
+            appendLog('Error invoking function: ' + error.message);
+            setStatus('Error running job.');
+            return;
+          }
+        } catch (err) {
+          appendLog('Error: ' + err.message);
+          setStatus('Error running job.');
+          return;
+        }
+        setStatus('Job started. Waiting for completion…');
+        // Poll job status until completed
+        const poll = async () => {
+          const { data: job, error } = await supa.from('csv_jobs').select().eq('id', sessionId).single();
+          if (error) {
+            console.error('Status poll error', error);
+            setTimeout(poll, 2000);
+            return;
+          }
+          if (job.status === 'completed') {
+            jobStatus = 'completed';
+            appendLog('Job completed. Fetching cleaned data…');
+            setStatus('Fetching cleaned data…');
+            await fetchCleaned();
+            return;
+          } else if (job.status === 'error') {
+            jobStatus = 'error';
+            appendLog('Job encountered an error: ' + job.error);
+            setStatus('Job failed.');
+            return;
+          } else {
+            jobStatus = job.status;
+            setTimeout(poll, 2000);
+          }
+        };
+        poll();
+      };
+
+      // Fetch cleaned records from Supabase and cache
+      async function fetchCleaned() {
+        const { data: records, error } = await supa.from('cleaned_records').select('*').eq('job_id', sessionId);
+        if (error) {
+          appendLog('Error fetching cleaned data: ' + error.message);
+          setStatus('Failed to fetch cleaned data.');
+          return;
+        }
+        cleanedData = records.map(row => ({
+          item_no: row.item_no,
+          document_name: row.document_name,
+          file_paths: row.file_path,
+          type_group: row.document_type_group,
+          date_stored: row.date_stored,
+          document_type: row.document_type
+        }));
+        cache = cleanedData.slice();
+        renderResults(cleanedData);
+        document.getElementById('searchInput').disabled = false;
+        document.getElementById('downloadBtn').disabled = cleanedData.length === 0;
+        setStatus(`Loaded ${cleanedData.length} cleaned records.`);
       }
-      // Filter cleaned results based on search input
-      function filterResults() {
-        const query = document.getElementById('search-input').value.toLowerCase();
-        const filtered = cleanedData.filter(row => {
-          return Object.values(row).some(val => val.toLowerCase().includes(query));
+
+      // Render cleanedData to table
+      function renderResults(data) {
+        const tbody = document.getElementById('resultBody');
+        tbody.innerHTML = '';
+        data.forEach(row => {
+          const tr = document.createElement('tr');
+          ['item_no', 'document_name', 'file_paths', 'type_group', 'date_stored', 'document_type'].forEach(key => {
+            const td = document.createElement('td');
+            td.textContent = row[key];
+            tr.appendChild(td);
+          });
+          tbody.appendChild(tr);
+        });
+      }
+
+      // Search within cleaned results
+      window.filterResults = function() {
+        const q = document.getElementById('searchInput').value.toLowerCase();
+        if (!cache) return;
+        if (!q) {
+          renderResults(cache);
+          return;
+        }
+        const filtered = cache.filter(row => {
+          return Object.values(row).some(val => String(val).toLowerCase().includes(q));
         });
         renderResults(filtered);
-      }
-      // Download cleaned data as zipped Excel file
-      async function downloadCleaned() {
-        if (!cleanedData || cleanedData.length === 0) {
-          alert('No cleaned data to download');
-          return;
-        }
-        updateStatus('Preparing download…');
-        // Convert cleanedData to worksheet and workbook
-        const worksheet = XLSX.utils.json_to_sheet(cleanedData);
+      };
+
+      // Download cleaned data as an Excel file compressed into a zip
+      window.downloadCleaned = async function() {
+        if (!cache || cache.length === 0) return;
+        setStatus('Preparing download…');
+        // Convert to worksheet
+        const ws = XLSX.utils.json_to_sheet(cache);
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, worksheet, 'Cleaned');
-        const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-        // Zip using JSZip
+        XLSX.utils.book_append_sheet(wb, ws, 'Cleaned');
+        const wbBlob = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+        // Create zip
         const zip = new JSZip();
-        zip.file('cleaned.xlsx', wbout);
-        const blob = await zip.generateAsync({ type: 'blob' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'cleaned.zip';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        updateStatus('Download ready');
-      }
+        zip.file('cleaned.xlsx', wbBlob);
+        const content = await zip.generateAsync({ type: 'blob' });
+        const url = URL.createObjectURL(content);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `cleaned_${sessionId}.zip`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        setStatus('Download ready.');
+      };
+
+      // Delete session: remove data and storage files
+      window.deleteSession = async function() {
+        if (!sessionId) return;
+        if (!confirm('This will delete all data for this session. Continue?')) return;
+        setStatus('Deleting session…');
+        clearLogs();
+        // Delete storage files
+        await supa.storage.from('raw_uploads').remove([filePath]);
+        await supa.storage.from('cleaned_output').remove([`${sessionId}/cleaned.xlsx`]);
+        // Delete records
+        await supa.from('cleaned_records').delete().eq('job_id', sessionId);
+        await supa.from('csv_job_logs').delete().eq('job_id', sessionId);
+        await supa.from('csv_jobs').delete().eq('id', sessionId);
+        // Reset state
+        sessionId = null;
+        filePath = null;
+        cleanedData = [];
+        cache = null;
+        document.getElementById('sessionInfo').classList.add('hidden');
+        document.getElementById('sessionIdDisplay').textContent = '';
+        document.getElementById('itemSelect').innerHTML = '';
+        document.getElementById('cleanBtn').disabled = true;
+        document.getElementById('searchInput').disabled = true;
+        document.getElementById('downloadBtn').disabled = true;
+        document.getElementById('resultBody').innerHTML = '';
+        setStatus('Session deleted. Ready.');
+      };
     </script>
   </body>
 </html>
