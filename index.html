@@ -1,614 +1,1378 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Supabase Document Cleaner</title>
-    <!--
-      Supabase Document Cleaner
+<head>
+  <meta charset="UTF-8" />
+  <title>Data Cleaner (Web)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Libraries (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/dayjs.min.js"></script>
 
-      This application replaces the in‑browser Pandas implementation with a server
-      side approach powered by Supabase.  Large spreadsheets are uploaded to a
-      temporary bucket on Supabase and processed by an Edge Function.  Each
-      import is tracked with a unique session ID (backed by the csv_jobs table),
-      and detailed logs are streamed back to the browser via Postgres
-      subscriptions.  The cleaned records live only for the lifetime of a
-      session; deleting the session removes all data and uploaded files.  This
-      design ensures that no potentially sensitive content remains in the cloud
-      beyond your workflow and avoids exhausting the browser’s memory when
-      handling large CSV files.
+  <style>
+    /* VS Code-like dark theme */
+    :root{
+      --bg: #1E1E1E;
+      --bg2:#252526;
+      --bg3:#2D2D2D;
+      --fg: #D4D4D4;
+      --accent:#007ACC;
+      --btn:#0E639C;
+      --btn-hover:#1177BB;
+      --btn-press:#094771;
+      --muted:#666;
+      --border:#2D2D2D;
+    }
+    *{ box-sizing: border-box; }
+    html, body { height: 100%; }
+    body{
+      margin:0; background:var(--bg); color:var(--fg);
+      font: 14px/1.4 -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+      overflow:hidden;
+    }
 
-      To deploy this front‑end you will need:
-        1. A Supabase project with the tables and policies described in the
-           documentation (see the README in this repository or the answer
-           instructions for the required SQL).  In particular the tables
-           csv_jobs, csv_job_logs and cleaned_records must exist with row
-           level security enabled and policies that allow anonymous inserts
-           and selects.
-        2. An Edge Function named `process_csv` that reads a CSV from the
-           `raw_uploads` bucket, filters rows by item number, groups paths
-           and writes results to the cleaned_records table, logging progress
-           to csv_job_logs and updating the job status in csv_jobs.
-      
-      In this file we embed the VS Code‑inspired dark theme, the Supabase
-      client library, SheetJS for quick local scanning of a few values, and
-      JSZip for compressing the final Excel file on demand.  The UI allows
-      users to upload a raw export, scan for unique item numbers, choose a
-      subset to process, start the job, monitor logs in real time and then
-      download the cleaned data.  A Delete Session button removes all traces
-      of the data from Supabase.  Caching in memory prevents redundant
-      downloads when re‑filtering or searching.
-    -->
-    <style>
-      /* VS Code–inspired dark theme */
-      :root {
-        --bg: #1e1e1e;
-        --bg2: #252526;
-        --bg3: #2d2d2d;
-        --fg: #d4d4d4;
-        --accent: #007acc;
-        --btn: #0e639c;
-        --btn-hover: #1177bb;
-        --btn-press: #094771;
-        --muted: #8a8a8a;
-        --border: #2d2d2d;
-        --danger: #f14c4c;
-        --radius: 6px;
-        --font-body: "Segoe UI", "Arial", "Helvetica Neue", Helvetica, sans-serif;
-      }
-      * { box-sizing: border-box; }
-      html, body { height: 100%; }
-      body {
-        margin: 0;
-        background: var(--bg);
-        color: var(--fg);
-        font-family: var(--font-body);
-        overflow: hidden;
-      }
-      .menubar {
-        height: 40px;
-        background: var(--bg);
-        border-bottom: 1px solid var(--border);
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 0 12px;
-      }
-      .menu-item {
-        padding: 6px 8px;
-        border-radius: 4px;
-        cursor: pointer;
-        color: var(--fg);
-        font-size: 13px;
-      }
-      .menu-item.active {
-        background: var(--bg3);
-      }
-      .app {
-        position: absolute;
-        top: 40px;
-        bottom: 26px;
-        left: 0;
-        right: 0;
-        display: flex;
-        min-height: 0;
-      }
-      .sidebar {
-        width: 300px;
-        background: var(--bg2);
-        border-right: 1px solid var(--border);
-        padding: 14px;
-        display: flex;
+    /* Menu bar */
+    .menubar{
+      height: 40px; background: var(--bg); border-bottom: 1px solid var(--border);
+      display:flex; align-items:center; gap:10px; padding: 0 10px;
+    }
+    .menubar .menu-group{ display:flex; align-items:center; gap:6px; }
+    .menubar button{
+      background: transparent; color:var(--fg); border:none; padding:6px 10px; border-radius:4px; cursor:pointer;
+    }
+    .menubar button:hover{ background: var(--bg3); }
+
+    /* Status bar */
+    .statusbar{
+      height: 26px; background: var(--accent); color:#fff; padding: 4px 10px;
+      position: absolute; bottom:0; left:0; right:0; display:flex; align-items:center; font-size:12px;
+    }
+
+    /* Layout */
+    .app{
+      position:absolute; top:40px; bottom:26px; left:0; right:0; display:flex;
+    }
+    .sidebar{
+      width:320px; background:var(--bg2); border-right: 1px solid var(--border); display:flex; flex-direction:column;
+    }
+    .sidebar h3{ margin:12px 12px 6px; font-size:13px; font-weight:600; color:#bbb; }
+    .file-list{ flex:1; overflow:auto; }
+    .file-item{
+      padding:8px 12px; border-bottom:1px solid var(--bg3); cursor: pointer;
+    }
+    .file-item:hover{ background: var(--bg3); }
+    .file-item.selected{ background: var(--accent); color:#fff; }
+    .controls{ padding:10px; border-top:1px solid var(--border); display:grid; gap:8px; }
+    .controls .btn{
+      background: var(--btn); border:none; color:#fff; padding:8px 10px; border-radius:4px; cursor:pointer; text-align:center;
+    }
+    .controls .btn:hover{ background: var(--btn-hover); }
+    .controls .btn:active{ background: var(--btn-press); }
+    .controls .muted{ background: var(--bg3); color: var(--muted); cursor: not-allowed; }
+
+    .main{
+      flex:1; display:flex; flex-direction:column; min-width:0;
+    }
+
+    /* Tabs: styles for each tab defined later. */
+    .tab{
+      background: var(--bg3);
+      padding:8px 14px;
+      border-top-left-radius:4px;
+      border-top-right-radius:4px;
+      cursor:pointer;
+    }
+    .tab.active{
+      background: var(--bg);
+      border-top: 2px solid var(--accent);
+    }
+    .tabpanel{
+      flex:1;
+      overflow:hidden;
+      display:none;
+    }
+    .tabpanel.active{
+      display:flex;
+    }
+    /* Logs panel */
+    #logsPanel{ padding:10px; }
+    #logs{
+      background: var(--bg); border:1px solid var(--border); color: var(--fg);
+      width:100%; height:100%; resize:none; padding:10px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      overflow:auto; white-space:pre;
+    }
+
+    /* Output panel */
+    #outputPanel{ display:flex; gap:10px; padding:10px; }
+    .output-list{
+      width:340px; border:1px solid var(--border); background: var(--bg2);
+      display:flex; flex-direction:column; min-width:280px; max-width:420px;
+    }
+    .output-list h4{ margin:8px 10px; font-size:13px; color:#bbb; }
+    .output-items{ overflow:auto; flex:1; }
+    .output-item{
+      padding:8px 10px; border-bottom: 1px solid var(--bg3); display:flex; align-items:center; justify-content:space-between; gap:8px;
+    }
+    .output-item .name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .output-item .actions a{
+      background: var(--btn); color:#fff; padding:4px 8px; border-radius:4px; text-decoration:none; font-size:12px;
+    }
+    .output-item .actions a:hover{ background: var(--btn-hover); }
+    .preview{
+      flex:1; min-width:0; display:flex; flex-direction:column;
+    }
+    .preview h4{ margin:0 0 8px; color:#bbb; }
+    .preview textarea{
+      /* This rule is kept for backward compatibility but no longer used */
+      display:none;
+    }
+
+    /* Table-based preview to mimic a spreadsheet grid */
+    .preview-table {
+      flex:1;
+      width:100%;
+      overflow:auto;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      color: #000000;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 13px;
+    }
+    .preview-table table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .preview-table td {
+      border: 1px solid #cccccc;
+      padding: 4px 6px;
+      white-space: nowrap;
+    }
+
+    /* Log container for color-coded log entries */
+    .log-container {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--fg);
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+      padding: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      white-space: pre-wrap;
+    }
+    .log-entry {
+      margin-bottom: 4px;
+      line-height: 1.3;
+    }
+    .log-info { color: var(--fg); }
+    .log-success { color: #4caf50; }
+    .log-warning { color: #ff9800; }
+    .log-error { color: #e53935; }
+
+    /* Highlight logs container when new files are added */
+    .log-container.new-log {
+      animation: logHighlight 2s forwards;
+    }
+    @keyframes logHighlight {
+      0% { border-color: var(--accent); box-shadow: 0 0 8px var(--accent); }
+      100% { border-color: var(--border); box-shadow: none; }
+    }
+
+    /* Highlight newly added files */
+    .file-item.just-added {
+      animation: highlightFlash 2s forwards;
+    }
+    @keyframes highlightFlash {
+      0% { background: rgba(0, 122, 204, 0.3); }
+      100% { background: var(--bg2); }
+    }
+
+
+    /* Tab grouping: separate main and secondary tabs */
+    .tabs {
+      display:flex;
+      gap:1px;
+      border-bottom:2px solid var(--accent);
+      background:var(--bg);
+      padding-left:6px;
+    }
+    .tab-group {
+      display:flex;
+    }
+    .tab-group + .tab-group {
+      margin-left:auto;
+    }
+
+    /* About */
+    #aboutPanel{ padding:16px; overflow:auto; }
+    #aboutPanel p { color:#c9c9c9; }
+
+    /* Home & Change Log & Settings Panels */
+    #changelogPanel, #settingsPanel{
+      padding:16px;
+      overflow-y: auto;
+    }
+    /* Settings list styling */
+    .settings-list{
+      list-style: none;
+      padding-left: 0;
+      margin: 0;
+    }
+    .settings-list li{
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    /* Hidden file input */
+    #fileInput{ display:none; }
+
+    /* Mobile responsive layout */
+    @media (max-width: 800px) {
+      .app{
         flex-direction: column;
-        gap: 14px;
-        overflow-y: auto;
       }
-      .sidebar h2 {
-        margin: 0;
-        font-size: 12px;
-        color: #bbbbbb;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
+      .sidebar{
+        width:100%;
+        border-right:none;
+        border-bottom:1px solid var(--border);
       }
-      .sidebar input[type="file"], .sidebar select, .sidebar button {
-        width: 100%;
-        padding: 8px;
-        margin-top: 6px;
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        background: var(--bg3);
-        color: var(--fg);
+      .tabs{
+        flex-wrap: wrap;
       }
-      .sidebar button {
-        cursor: pointer;
-      }
-      .sidebar button:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-      }
-      .content {
-        flex: 1;
-        display: flex;
+      #outputPanel, #logsPanel, #aboutPanel, #settingsPanel{
+        padding:8px;
         flex-direction: column;
-        overflow: hidden;
       }
-      .toolbar {
-        padding: 12px;
-        background: var(--bg2);
-        border-bottom: 1px solid var(--border);
-        display: flex;
-        gap: 10px;
-        align-items: center;
+      .preview{
+        margin-top:10px;
       }
-      .toolbar input[type="text"] {
-        flex: 1;
-        padding: 6px;
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        background: var(--bg3);
-        color: var(--fg);
-      }
-      table {
-        width: 100%;
-        border-collapse: collapse;
-      }
-      thead {
-        position: sticky;
-        top: 0;
-        background: var(--bg2);
-        z-index: 2;
-      }
-      th, td {
-        padding: 6px 8px;
-        border-bottom: 1px solid var(--border);
-        font-size: 13px;
-      }
-      tbody tr:hover {
-        background: var(--bg3);
-      }
-      .logs {
-        height: 150px;
-        overflow-y: auto;
-        background: var(--bg2);
-        padding: 8px;
-        border-top: 1px solid var(--border);
-        font-size: 12px;
-        line-height: 1.4;
-      }
-      .status-bar {
-        height: 26px;
-        background: var(--bg3);
-        border-top: 1px solid var(--border);
-        display: flex;
-        align-items: center;
-        padding: 0 10px;
-        font-size: 12px;
-        justify-content: space-between;
-      }
-      .hidden { display: none; }
-      .dropdown {
-        width: 100%;
-        padding: 6px;
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        background: var(--bg3);
-        color: var(--fg);
-      }
-    </style>
-  </head>
-  <body>
-    <div class="menubar">
-      <div class="menu-item active" id="tab-cleaner" onclick="selectTab('cleaner')">Cleaner</div>
-      <div class="menu-item" id="tab-about" onclick="selectTab('about')">About</div>
-    </div>
-    <div class="app">
-      <div class="sidebar" id="sidebar-cleaner">
-        <h2>1. Upload Raw Export</h2>
-        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" />
-        <button id="scanBtn" onclick="scanItems()">Scan Items</button>
-        <div id="sessionInfo" class="hidden">
-          <h2>Session</h2>
-          <div id="sessionIdDisplay"></div>
-          <button id="deleteSessionBtn" onclick="deleteSession()">Delete Session</button>
-        </div>
-        <h2>2. Select Item Numbers</h2>
-        <select id="itemSelect" class="dropdown" multiple size="8"></select>
-        <button id="cleanBtn" onclick="cleanSelected()" disabled>Clean Selected</button>
-      </div>
-      <div class="content" id="content-cleaner">
-        <div class="toolbar">
-          <input type="text" id="searchInput" placeholder="Search in cleaned results..." oninput="filterResults()" disabled />
-          <button id="downloadBtn" onclick="downloadCleaned()" disabled>Download Cleaned</button>
-        </div>
-        <div style="flex:1; overflow:auto;">
-          <table id="resultTable">
-            <thead>
-              <tr>
-                <th>Item No</th>
-                <th>Document Name</th>
-                <th>File Paths</th>
-                <th>Type Group</th>
-                <th>Date Stored</th>
-                <th>Document Type</th>
-              </tr>
-            </thead>
-            <tbody id="resultBody"></tbody>
-          </table>
-        </div>
-        <div class="logs" id="logPanel"></div>
-      </div>
-      <!-- About Tab -->
-      <div class="content hidden" id="content-about">
-        <div style="padding: 12px; overflow-y:auto; height:100%;">
-          <h1>About This Cleaner</h1>
-          <p>
-            This application uses <strong>Supabase</strong> to process large CSV and
-            Excel exports without exhausting your browser’s memory.  When you
-            upload a file, it is streamed to a private <em>raw_uploads</em> bucket
-            inside your Supabase project.  A unique session ID is generated and
-            recorded in the <code>csv_jobs</code> table; this ID is displayed in
-            the sidebar so you can track your session.  You then select which
-            item numbers to clean.  When you press <strong>Clean Selected</strong>, an
-            Edge Function named <code>process_csv</code> runs on the server: it
-            reads your uploaded file, filters rows by item number, groups and
-            deduplicates file paths using SQL, and writes results into the
-            <code>cleaned_records</code> table.  Progress messages are inserted
-            into <code>csv_job_logs</code>, which stream live into the log panel via
-            Supabase Realtime.  Once complete, the browser fetches the cleaned
-            records and displays them in an interactive table.  You can search
-            within the results and download the data as an Excel file.  When you
-            delete a session, all rows and files associated with that session
-            are removed from your database and storage buckets.
-          </p>
-          <p>
-            <strong>Why use Supabase?</strong>  Prior versions of this cleaner relied
-            on running Python in the browser via Pyodide.  While convenient for
-            small files, it struggled with large datasets and could crash the
-            tab.  Offloading work to a server means you can handle much larger
-            exports without putting a strain on your computer.  Supabase
-            automatically scales and enforces row‑level security, ensuring that
-            only data belonging to your session is accessible.  The lifecycle
-            rules you set on your buckets determine when files are deleted
-            automatically, so you never have to worry about leaving data
-            behind.  A combination of server processing and local search
-            caching gives you the best of both worlds: heavy work happens
-            remotely, while searching through results is instantaneous.
-          </p>
-          <p>
-            <strong>Tables and Policies:</strong>  This tool expects the following
-            tables in your Supabase database:
-          </p>
-          <ul>
-            <li>
-              <code>csv_jobs</code> – tracks each upload with fields
-              <code>id</code> (uuid primary key), <code>filename</code>, <code>status</code>,
-              <code>created_at</code>, <code>completed_at</code> and <code>error</code>.
-            </li>
-            <li>
-              <code>csv_job_logs</code> – stores log messages for each job
-              (foreign key <code>job_id</code> → <code>csv_jobs.id</code>) and a
-              timestamp.
-            </li>
-            <li>
-              <code>cleaned_records</code> – temporary table holding cleaned
-              rows with fields for item number, document name, file paths, type
-              group, date stored and document type.  Each record is tied to
-              <code>job_id</code> so it can be deleted when the session ends.
-            </li>
-          </ul>
-          <p>
-            Row level security should be enabled on all three tables.  Policies
-            should allow anonymous users to insert new rows and select rows
-            pertaining to their own job ID.  The Edge Function uses a service
-            role key to bypass RLS so it can write logs and cleaned data.  See
-            the SQL section in the instructions for the exact DDL and policy
-            definitions.  By default the publishable key included in this
-            template only allows reading and inserting into the allowed tables.
-          </p>
-          <p>
-            To prevent reloading the same data repeatedly, the cleaned results
-            are cached in memory on the client.  Searching or filtering the
-            results operates on this local cache, so you can quickly explore
-            your data without hitting the database again.  When you start
-            another cleaning job, the cache is cleared.
-          </p>
-        </div>
-      </div>
-    </div>
-    <div class="status-bar" id="statusBar">
-      Ready.
-    </div>
+    }
 
-    <!-- External libraries -->
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-    <script type="module">
-      import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.38.2/+esm';
+    /* Improve about page spacing and styling */
+    #aboutPanel {
+      padding: 16px;
+      overflow: auto;
+      line-height: 1.5;
+      max-width: 700px;
+      margin: 0 auto;
+    }
+    #aboutPanel h2 {
+      margin-bottom: 12px;
+      color: var(--accent);
+    }
+    #aboutPanel p {
+      margin-bottom: 12px;
+    }
+    #aboutPanel hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 16px 0;
+    }
 
-      // Initialise Supabase client using credentials provided by the user.
-      const supabaseUrl = 'https://axkfsvaltwwpihwrdefw.supabase.co';
-      const supabaseKey = 'sb_publishable_R26Ofyljfp7uHUP2FnldRA_dX1bi7np';
-      const supa = createClient(supabaseUrl, supabaseKey, {
-        auth: {
-          persistSession: false // do not store session in local storage
+    #aboutPanel a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    #aboutPanel a:hover {
+      text-decoration: underline;
+    }
+
+    /* Style changelog panel */
+    #changelogPanel {
+      padding: 16px;
+      overflow: auto;
+      line-height: 1.5;
+      max-width: 700px;
+      margin: 0 auto;
+    }
+    #changelogPanel h2 {
+      margin-bottom: 12px;
+      color: var(--accent);
+    }
+    #changelogPanel h3 {
+      margin: 16px 0 8px;
+      color: var(--fg);
+    }
+    #changelogPanel ul {
+      margin: 0 0 8px 20px;
+      padding: 0;
+    }
+    #changelogPanel li {
+      margin-bottom: 6px;
+    }
+
+    /* Custom bullet styles for change log */
+    #changelogPanel ul {
+      margin-left: 0;
+      padding-left: 0;
+    }
+    #changelogPanel li {
+      list-style: none;
+      position: relative;
+      padding-left: 14px;
+    }
+    #changelogPanel li::before {
+      content: '\2022'; /* bullet */
+      position: absolute;
+      left: 0;
+      color: var(--accent);
+    }
+    #aboutPanel p{
+      margin-bottom:1rem;
+      line-height:1.6;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Menu -->
+  <div class="menubar">
+    <div class="menu-group">
+      <button id="menuAdd">Add Files (Ctrl+O)</button>
+      <button id="menuStart">Start Cleaning (Ctrl+R)</button>
+      <button id="menuToggleSidebar">Toggle Sidebar (Ctrl+B)</button>
+    </div>
+    <div style="margin-left:auto; opacity:.8;">Data Cleaner (Web) — Built by Ruel McNeil</div>
+  </div>
+
+  <!-- App -->
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <h3>Files</h3>
+      <div class="file-list" id="fileList"></div>
+      <div class="controls">
+        <input id="fileInput" type="file" multiple accept=".xlsx,.xlsm,.xls,.csv" />
+        <button class="btn" id="btnAdd">Add Files</button>
+        <button class="btn" id="btnRemove">Remove Selected</button>
+        <button class="btn" id="btnStart">Start Cleaning</button>
+        <button class="btn" id="btnClear">Clear All</button>
+
+        <!-- File path trimming strategy select (visible in sidebar for quick access) -->
+        <div style="display:flex; flex-direction:column; gap:4px; font-size:12px; color:#c9c9c9;">
+          <label for="sidebarTrimStrategySelect" style="font-size:12px;">File Path Strategy:</label>
+          <select id="sidebarTrimStrategySelect" style="padding:4px; border-radius:4px; border:1px solid var(--border); background:var(--bg3); color:var(--fg);">
+            <option value="trim_all">Trim all /</option>
+            <option value="trim_first">Trim only the first /</option>
+          </select>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="tabs">
+        <!-- Main tabs group: Logs and Output -->
+        <div class="tab-group">
+          <div class="tab active" data-tab="logsPanel">Logs</div>
+          <div class="tab" data-tab="outputPanel">Output</div>
+        </div>
+        <!-- Secondary tabs group: Settings, Change Log, About -->
+        <div class="tab-group">
+          <div class="tab" data-tab="settingsPanel">Settings</div>
+          <div class="tab" data-tab="changelogPanel">Change Log</div>
+          <div class="tab" data-tab="aboutPanel">About</div>
+        </div>
+      </div>
+
+      <section class="tabpanel active" id="logsPanel">
+        <!-- Replace textarea with a scrollable div for colored logs -->
+        <div id="logs" class="log-container"></div>
+      </section>
+
+      <section class="tabpanel" id="outputPanel">
+        <div class="output-list">
+          <h4>Cleaned Files</h4>
+          <button class="btn" id="btnDownloadAll" style="margin:8px 10px; align-self:flex-start;">Download All</button>
+          <div class="output-items" id="outputItems"></div>
+        </div>
+        <div class="preview before">
+          <h4>Before (first 30 rows)</h4>
+          <!-- Use a div with a table inside to mimic an Excel grid -->
+          <div id="previewBefore" class="preview-table"></div>
+        </div>
+        <div class="preview after">
+          <h4>After (first 30 rows)</h4>
+          <!-- Use a div with a table inside to mimic an Excel grid -->
+          <div id="previewAfter" class="preview-table"></div>
+        </div>
+      </section>
+
+      <section class="tabpanel" id="aboutPanel">
+        <h2>About Data Cleaner</h2>
+        <p>
+          This application automates the cleaning of government V-series datasets in your browser. Add files using the sidebar, click <em>Start Cleaning</em>, and then download the cleaned CSVs. Your data never leaves your machine.
+        </p>
+        <hr>
+        <p>
+          Source Code:
+          <a href="https://github.com/Cruelhelp/DataCleanerWeb" target="_blank">DataCleanerWeb (Web version)</a>
+          &nbsp;|&nbsp;
+          <a href="https://github.com/Cruelhelp/DataCleaner" target="_blank">DataCleaner (Desktop version)</a>
+        </p>
+        <hr>
+        <p>&copy; 2025 Ruel – All Rights Reserved</p>
+      </section>
+
+      <!-- Settings panel -->
+      <section class="tabpanel" id="settingsPanel">
+        <h2>Settings</h2>
+        <ul id="settingsList" class="settings-list">
+          <li>
+            <label for="trimStrategySelect">File Path Strategy:</label>
+            <select id="trimStrategySelect">
+              <option value="trim_all">Trim all /</option>
+              <option value="trim_first">Trim only the first /</option>
+            </select>
+          </li>
+          <li>
+            <label><input type="checkbox" id="optWhitespace" checked> Trim leading/trailing whitespace in document names</label>
+          </li>
+          <li>
+            <label><input type="checkbox" id="optNormalizeDates" checked> Normalize all dates to DD/MM/YYYY</label>
+          </li>
+          <li>
+            <label><input type="checkbox" id="optRemoveBanned" checked> Remove banned words from names</label>
+          </li>
+          <li>
+            <label for="themeSelect">Theme:</label>
+            <select id="themeSelect">
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+            </select>
+          </li>
+        </ul>
+      </section>
+
+
+      <!-- Change Log panel -->
+      <section class="tabpanel" id="changelogPanel">
+        <h2>Change Log</h2>
+        <!-- Change log content will be injected via JavaScript -->
+      </section>
+    </main>
+  </div>
+
+  <!-- Status -->
+  <div class="statusbar"><span id="status">Ready</span></div>
+
+<script>
+/* ------------------------------
+   State
+------------------------------ */
+const state = {
+  files: /** @type {Array<{file:File, name:string, size:string, selected:boolean}>} */([]),
+  cleaned: /** @type {Array<{name:string, blob:Blob, text:string}>} */([]),
+};
+
+/* ------------------------------
+   Utilities (UI)
+------------------------------ */
+const $ = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
+function setStatus(msg){ $('#status').textContent = msg; }
+function log(msg){
+  const logsContainer = document.getElementById('logs');
+  if(!logsContainer) return;
+  const entry = document.createElement('div');
+  entry.classList.add('log-entry');
+  const lower = String(msg).toLowerCase();
+  if(lower.includes('error')){
+    entry.classList.add('log-error');
+  } else if(lower.includes('saved')){
+    entry.classList.add('log-success');
+  } else if(lower.includes('added')){
+    entry.classList.add('log-success');
+  } else if(lower.includes('removed') || lower.includes('cleared') || lower.includes('unsupported')){
+    entry.classList.add('log-warning');
+  } else {
+    entry.classList.add('log-info');
+  }
+  entry.textContent = msg;
+  logsContainer.appendChild(entry);
+  logsContainer.scrollTop = logsContainer.scrollHeight;
+}
+function fmtSize(bytes){
+  const kb = bytes/1024;
+  return `${kb.toFixed(1)} KB`;
+}
+function renderFileList(){
+  const list = $('#fileList');
+  list.innerHTML = '';
+  state.files.forEach((f, idx)=>{
+    const div = document.createElement('div');
+    let classes = 'file-item';
+    if(f.selected) classes += ' selected';
+    if(f.justAdded) classes += ' just-added';
+    div.className = classes;
+    div.dataset.index = idx;
+    div.innerHTML = `
+      <div><strong>${escapeHtml(f.name)}</strong></div>
+      <div style="opacity:.8; font-size:12px;">${f.size}</div>
+    `;
+    div.addEventListener('click', ()=>{
+      state.files[idx].selected = !state.files[idx].selected;
+      renderFileList();
+    });
+    list.appendChild(div);
+  });
+}
+function renderOutputList(){
+  const out = $('#outputItems');
+  out.innerHTML = '';
+  state.cleaned.forEach((c, idx)=>{
+    const row = document.createElement('div');
+    row.className = 'output-item';
+    const fileName = c.name.endsWith('_cleaned.csv') ? c.name : `${c.name}_cleaned.csv`;
+    row.innerHTML = `
+      <div class="name" title="${escapeHtml(fileName)}">${escapeHtml(fileName)}</div>
+      <div class="actions">
+        <a href="#" data-idx="${idx}" class="download">Download</a>
+        <a href="#" data-idx="${idx}" class="preview">Preview</a>
+      </div>
+    `;
+    out.appendChild(row);
+  });
+
+  // actions
+  out.querySelectorAll('a.download').forEach(a=>{
+    a.addEventListener('click', (e)=>{
+      e.preventDefault();
+      const i = +a.dataset.idx;
+      const c = state.cleaned[i];
+      const fileName = c.name.endsWith('_cleaned.csv') ? c.name : `${c.name}_cleaned.csv`;
+      const url = URL.createObjectURL(c.blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    });
+  });
+  out.querySelectorAll('a.preview').forEach(a=>{
+    a.addEventListener('click', (e)=>{
+      e.preventDefault();
+      const i = +a.dataset.idx;
+      const c = state.cleaned[i];
+      // Populate before and after preview panes
+      const beforeArea = document.getElementById('previewBefore');
+      const afterArea = document.getElementById('previewAfter');
+      // Use table-based preview for before and after snapshots
+      if(beforeArea){
+        renderCSVTable(beforeArea, c.origText || '');
+      }
+      if(afterArea){
+        renderCSVTable(afterArea, c.text || '');
+      }
+    });
+  });
+}
+
+/* ------------------------------
+   Event wiring
+------------------------------ */
+$('#btnAdd').addEventListener('click', ()=> $('#fileInput').click());
+$('#menuAdd').addEventListener('click', ()=> $('#fileInput').click());
+$('#fileInput').addEventListener('change', onFilesSelected);
+
+$('#btnRemove').addEventListener('click', ()=>{
+  state.files = state.files.filter(f=>!f.selected);
+  renderFileList();
+  log('Removed selected files.');
+});
+$('#btnClear').addEventListener('click', ()=>{
+  state.files = [];
+  renderFileList();
+  log('Cleared file list.');
+});
+
+$('#btnStart').addEventListener('click', startCleaning);
+$('#menuStart').addEventListener('click', startCleaning);
+$('#menuToggleSidebar').addEventListener('click', ()=> {
+  const sb = $('#sidebar');
+  sb.style.display = (sb.style.display === 'none') ? '' : 'none';
+});
+
+/* Tabs */
+$$('.tab').forEach(tab=>{
+  tab.addEventListener('click', ()=>{
+    $$('.tab').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    const id = tab.dataset.tab;
+    $$('.tabpanel').forEach(p=>p.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+  });
+});
+
+/* Keyboard shortcuts */
+document.addEventListener('keydown', (e)=>{
+  if(e.ctrlKey && e.key.toLowerCase()==='o'){ e.preventDefault(); $('#fileInput').click(); }
+  if(e.ctrlKey && e.key.toLowerCase()==='r'){ e.preventDefault(); startCleaning(); }
+  if(e.ctrlKey && e.key.toLowerCase()==='b'){ e.preventDefault(); $('#menuToggleSidebar').click(); }
+});
+
+/* ------------------------------
+   File selection
+------------------------------ */
+function onFilesSelected(ev){
+  const files = Array.from(ev.target.files || []);
+  let added = 0;
+  files.forEach(f=>{
+    if(!state.files.find(x=>x.name===f.name && x.file.size===f.size)){
+      // Mark as just added for highlight
+      state.files.push({file:f, name:f.name, size:fmtSize(f.size), selected:false, justAdded:true});
+      added++;
+    }
+  });
+  renderFileList();
+  if(added) log(`Added ${added} file(s).`);
+  ev.target.value = ''; // reset input
+
+  // If files were added, momentarily highlight the logs container
+  if(added){
+    const logsContainer = document.getElementById('logs');
+    if(logsContainer){
+      logsContainer.classList.add('new-log');
+      setTimeout(() => logsContainer.classList.remove('new-log'), 2000);
+    }
+  }
+
+  // Remove justAdded highlight after a short delay
+  if(added){
+    setTimeout(() => {
+      let changed = false;
+      state.files.forEach(item => {
+        if(item.justAdded){
+          item.justAdded = false;
+          changed = true;
         }
       });
+      if(changed) renderFileList();
+    }, 2500);
+  }
 
-      // Global state
-      let sessionId = null;
-      let filePath = null;
-      let cleanedData = [];
-      let logsChannel = null;
-      let jobStatus = null;
-      let cache = null; // to hold cached results for current session
+  // Auto-populate the "Before" preview with the first newly added file's data
+  if(added){
+    // Determine the index of the first newly added file
+    const newIndex = state.files.length - added;
+    const fileObj = state.files[newIndex];
+    if(fileObj && fileObj.file){
+      loadPreviewForFile(fileObj.file).catch(() => {});
+    }
+  }
+}
 
-      // UI helpers
-      function setStatus(msg) {
-        document.getElementById('statusBar').textContent = msg;
+/* ------------------------------
+   Cleaning Logic (JS port)
+------------------------------ */
+
+const BANNED_WORDS = new Set([
+  'MINISTRY','AGREEMENT','PROJECT','REPORT','AUDIT','DEPARTMENT','SERVICES','PROGRAMME',
+  'PROCUREMENT','IMPLEMENTING','FORCE','ASSOCIATION','EDUCATION','LOAN','FINANCING',
+  'HURRICANE','RELIEF','BANK','ACCOUNT','CABINET','SUBMISSION','COMMENTS','TRACKING',
+  'LETTER','DECISION','SUBMISSON'
+]);
+const DT_PREFIXES = ['MF','MFP','FILE','LOAN','LETTER','CABINET'];
+const DELIM_RE = /(?<=\s)-|-(?=\s)/g;
+
+// Trim strategy variables and helpers
+// Global variable storing the current file path trimming mode. Possible values: 'trim_all', 'trim_first'
+let trimStrategy = null;
+// Flags controlling optional cleaning behaviours
+let whitespaceEnabled = true;
+let normalizeDatesEnabled = true;
+let bannedWordsEnabled = true;
+
+/**
+ * Trim a file path according to the selected strategy.
+ * @param {string} path The original file path
+ * @param {string} strategy Either 'trim_all' (remove all slashes) or 'trim_first' (remove the first leading slash)
+ * @returns {string} The trimmed path
+ */
+function trimFilePath(path, strategy = 'trim_all') {
+  if (!path) return '';
+  path = String(path).trim();
+  // When trim_all, we defer handling in clean_dataframe; return path unchanged
+  if (strategy === 'trim_all') {
+    return path;
+  } else if (strategy === 'trim_first') {
+    // Remove only the first leading slash or backslash
+    if (path.startsWith('/') || path.startsWith('\\')) {
+      return path.substring(1);
+    }
+    return path;
+  }
+  return path;
+}
+
+/**
+ * Load the trim strategy from localStorage (if previously saved) and update UI selects.
+ */
+function loadTrimStrategy() {
+  const stored = localStorage.getItem('trimStrategy');
+  trimStrategy = stored || null;
+  const sidebarSel = document.getElementById('sidebarTrimStrategySelect');
+  const settingsSel = document.getElementById('trimStrategySelect');
+  if (sidebarSel) {
+    sidebarSel.value = trimStrategy || '';
+  }
+  if (settingsSel) {
+    settingsSel.value = trimStrategy || '';
+  }
+}
+
+/**
+ * Persist and propagate the trim strategy selection.
+ * @param {string} value The chosen strategy
+ */
+function updateTrimStrategy(value) {
+  trimStrategy = value;
+  localStorage.setItem('trimStrategy', value);
+  const sidebarSel = document.getElementById('sidebarTrimStrategySelect');
+  const settingsSel = document.getElementById('trimStrategySelect');
+  if (sidebarSel && sidebarSel.value !== value) sidebarSel.value = value;
+  if (settingsSel && settingsSel.value !== value) settingsSel.value = value;
+}
+
+function extract_file_number(doc_name){
+  if(!doc_name) return null;
+  let m = doc_name.match(/File\s*No:\s*([A-Za-z0-9/]+)/i);
+  if(m){
+    const val = m[1].trim();
+    return val.includes('/') ? val.split('/')[0] : val;
+  }
+  m = doc_name.match(/File\s*-\s*([A-Za-z0-9]+)/i);
+  if(m) return m[1].trim();
+  m = doc_name.match(/^\s*([0-9]{2,4})\/[0-9]{2,4}/);
+  if(m) return m[1];
+  return null;
+}
+function remove_leading_file_code(s){
+  return s.replace(/^\/\d{1,4}\s*/, '');
+}
+function extract_name_and_mda(doc_name, file_number, doc_type){
+  let s = (doc_name||'').trim();
+  const dt = (doc_type||'').trim();
+  if(dt && s.toUpperCase().endsWith(dt.toUpperCase())){
+    const idx = s.toUpperCase().lastIndexOf(dt.toUpperCase());
+    s = s.slice(0, idx).replace(/\s*-\s*$/,'').trim();
+  }
+  if(file_number){
+    const idx = s.toUpperCase().indexOf(file_number.toUpperCase());
+    if(idx !== -1) s = s.slice(idx + file_number.length);
+  }
+  s = s.replace(/^\s*-+\s*/,'');
+  s = remove_leading_file_code(s);
+
+  // Title handling: MR/MRS/MS/MISS
+  let m = s.match(/\b(MR|MRS|MS|MISS)\.?\s+/i);
+  if(m){
+    const after = s.slice(m.index + m[0].length).trim();
+    const parts = after.split(DELIM_RE).map(p=>p.trim()).filter(Boolean);
+    const candidate = parts.length ? parts[0] : after;
+    let tokens = candidate.split(/[\s\-]+/).filter(Boolean);
+    if(tokens.length > 3) tokens = tokens.slice(0,3);
+    const name = tokens.length ? tokens.join(' ').toUpperCase() : null;
+    let mda = null;
+    if(parts.length > 1){
+      const mda_candidate = parts.slice(1).join(' - ').trim();
+      if(mda_candidate) mda = mda_candidate.toUpperCase();
+    }
+    return {name, mda};
+  }
+
+  let parts = s.split(DELIM_RE).map(p=>p.trim()).filter(Boolean)
+               .filter(p => !/^\/\d{1,4}$/.test(p));
+
+  let name = null, mda = null;
+
+  for(let i=0;i<parts.length;i++){
+    const part = parts[i];
+    const up = part.toUpperCase();
+    if(DT_PREFIXES.some(pfx=>up.startsWith(pfx))) continue;
+    // Skip parts containing banned words only if bannedWordsEnabled is true
+    if(bannedWordsEnabled && Array.from(BANNED_WORDS).some(bad=>up.includes(bad))) continue;
+    let tokens = up.split(/[\s\-]+/).filter(Boolean);
+    if(tokens.length>=2 && tokens.length<=4 && tokens.filter(t=>/[A-Z]/.test(t)).length>=2){
+      if(tokens.length>3) tokens = tokens.slice(0,3);
+      name = tokens.join(' ');
+      // build MDA from remaining parts until a DT_PREFIX
+      const mda_parts = [];
+      for(let j=i+1;j<parts.length;j++){
+        const segUp = parts[j].toUpperCase();
+        if(DT_PREFIXES.some(pfx=>segUp.startsWith(pfx))) break;
+        mda_parts.push(parts[j].trim());
       }
-      function appendLog(msg) {
-        const logPanel = document.getElementById('logPanel');
-        logPanel.textContent += msg + '\n';
-        logPanel.scrollTop = logPanel.scrollHeight;
+      if(mda_parts.length) mda = mda_parts.join(' - ').trim().toUpperCase();
+      break;
+    }
+  }
+  if(!name){
+    const mda_parts=[];
+    for(const part of parts){
+      const up = part.toUpperCase();
+      if(DT_PREFIXES.some(pfx=>up.startsWith(pfx))) break;
+      mda_parts.push(part.trim());
+    }
+    if(mda_parts.length) mda = mda_parts.join(' - ').trim().toUpperCase();
+  }
+  return {name, mda};
+}
+function format_date(value){
+  if(value==null || value==='') return null;
+  // Attempt with dayjs; it handles numbers (Excel dates) poorly without plugin,
+  // but SheetJS will emit JS Date for xlsx, and Papa for CSV leaves strings.
+  let d;
+  if(value instanceof Date && !isNaN(value)) d = dayjs(value);
+  else {
+    // Try to coerce numerics like Excel serial? SheetJS gives Date by default when cellDates option is true;
+    // Here we rely on Date parsing fallback.
+    const tryD = dayjs(value);
+    d = tryD.isValid() ? tryD : null;
+  }
+  if(!d) return null;
+  return d.format('DD/MM/YYYY');
+}
+function normalizeColumns(dfRows){
+  // If required columns missing, try to infer/rename
+  // dfRows is array of row objects
+  const required = ['Document Name','File Path','Document Type Group','Date Stored','Document Type'];
+  if(dfRows.length===0) return dfRows;
+
+  // Build header mapping
+  const headers = Object.keys(dfRows[0]);
+  const rename = {};
+  headers.forEach(col=>{
+    const low = col.toLowerCase().trim();
+    if((low.startsWith('doc') && low.includes('name')) && !headers.includes('Document Name')) rename[col] = 'Document Name';
+    else if((low.startsWith('file') && low.includes('path')) && !headers.includes('File Path')) rename[col] = 'File Path';
+    else if(low.startsWith('document type group') && !headers.includes('Document Type Group')) rename[col] = 'Document Type Group';
+    else if((low.startsWith('date') && low.includes('stored')) && !headers.includes('Date Stored')) rename[col] = 'Date Stored';
+    else if(low.startsWith('document type') && !headers.includes('Document Type')) rename[col] = 'Document Type';
+  });
+
+  if(Object.keys(rename).length){
+    return dfRows.map(row=>{
+      const out = {...row};
+      for(const [from,to] of Object.entries(rename)){
+        if(from in out){ out[to] = out[from]; delete out[from]; }
       }
-      function clearLogs() {
-        document.getElementById('logPanel').textContent = '';
+      return out;
+    });
+  }
+  return dfRows;
+}
+function clean_dataframe(dfRows){
+  const out = [];
+  for(const row of dfRows){
+    // Document name handling: optionally trim whitespace
+    let doc_name = String(row['Document Name'] ?? '');
+    if (whitespaceEnabled) {
+      doc_name = doc_name.trim();
+    }
+    // File path handling:
+    let originalPath = String(row['File Path'] ?? '');
+    originalPath = originalPath.trim();
+    let outputPath;
+    let file_name;
+    if (trimStrategy === 'trim_first') {
+      // Remove only the first leading slash/backslash and keep the rest of path
+      const trimmedPath = trimFilePath(originalPath, trimStrategy);
+      outputPath = trimmedPath;
+      file_name = trimmedPath ? trimmedPath.split(/[\\/]/).pop() : '';
+    } else {
+      // trim_all: extract only the file name (last segment)
+      file_name = originalPath ? originalPath.split(/[\\/]/).pop() : '';
+      outputPath = file_name;
+    }
+    const doc_type_group = String(row['Document Type Group'] ?? '').trim();
+    const date_val = row['Date Stored'];
+    const doc_type = String(row['Document Type'] ?? '').trim();
+    // Date normalization: if disabled, keep original value
+    const date_str = normalizeDatesEnabled ? format_date(date_val) : String(date_val ?? '');
+    const file_number = extract_file_number(doc_name);
+    const {name, mda} = extract_name_and_mda(doc_name, file_number, doc_type);
+    out.push({
+      'FolderName': 'OnBase Files',
+      'Document Name': doc_name,
+      'File Number': file_number ?? '',
+      'Name': name ?? '',
+      'MDA': mda ?? '',
+      'File Path': outputPath,
+      'Document Type Group': doc_type_group,
+      'Date Stored': date_str ?? '',
+      'Document Type': doc_type,
+    });
+  }
+  return out;
+}
+
+/* ------------------------------
+   Readers
+------------------------------ */
+async function readFileAsArrayBuffer(file){
+  return new Promise((res, rej)=>{
+    const fr = new FileReader();
+    fr.onload = ()=> res(fr.result);
+    fr.onerror = rej;
+    fr.readAsArrayBuffer(file);
+  });
+}
+async function readFileAsText(file){
+  return new Promise((res, rej)=>{
+    const fr = new FileReader();
+    fr.onload = ()=> res(fr.result);
+    fr.onerror = rej;
+    fr.readAsText(file);
+  });
+}
+async function parseSpreadsheet(file){
+  // returns array of row objects
+  const ab = await readFileAsArrayBuffer(file);
+  const wb = XLSX.read(ab, {type:'array', cellDates:true});
+  const sheetName = wb.SheetNames[0];
+  const ws = wb.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(ws, {defval:'', raw:true});
+  return rows;
+}
+async function parseCsv(file){
+  const text = await readFileAsText(file);
+  return new Promise((res, rej)=>{
+    Papa.parse(text, {
+      header: true,
+      skipEmptyLines: 'greedy',
+      complete: results => res(results.data),
+      error: err => rej(err)
+    });
+  });
+}
+
+/* ------------------------------
+   Cleaning Orchestrator
+------------------------------ */
+async function startCleaning(){
+  if(state.files.length===0){
+    alert('Please add files to clean.');
+    return;
+  }
+  setStatus('Cleaning in progress…');
+  log('Starting cleaning process...');
+  state.cleaned = [];
+  // Clear both before and after preview areas before starting cleaning
+  const beforeAreaClear = document.getElementById('previewBefore');
+  if (beforeAreaClear) beforeAreaClear.innerHTML = '';
+  const afterAreaClear = document.getElementById('previewAfter');
+  if (afterAreaClear) afterAreaClear.innerHTML = '';
+  // Pull latest settings from UI
+  whitespaceEnabled = document.getElementById('optWhitespace') ? document.getElementById('optWhitespace').checked : true;
+  normalizeDatesEnabled = document.getElementById('optNormalizeDates') ? document.getElementById('optNormalizeDates').checked : true;
+  bannedWordsEnabled = document.getElementById('optRemoveBanned') ? document.getElementById('optRemoveBanned').checked : true;
+  // enforce that user selected a trim strategy
+  if(!trimStrategy){
+    alert('Please select a File Path Strategy via the sidebar dropdown or Settings tab before cleaning.');
+    setStatus('Ready');
+    return;
+  }
+  // Switch to Output tab when done
+  for(const item of state.files){
+    const ext = item.name.toLowerCase().split('.').pop();
+    try{
+      log(`Reading ${item.name}...`);
+      let rows;
+      if(['xlsx','xlsm','xls'].includes(ext)){
+        rows = await parseSpreadsheet(item.file);
+      }else if(['csv','txt'].includes(ext)){
+        rows = await parseCsv(item.file);
+      }else{
+        log(`Unsupported format: ${item.name}`);
+        continue;
       }
 
-      // Tab switching
-      window.selectTab = function(tab) {
-        document.getElementById('tab-cleaner').classList.toggle('active', tab === 'cleaner');
-        document.getElementById('tab-about').classList.toggle('active', tab === 'about');
-        document.getElementById('sidebar-cleaner').classList.toggle('hidden', tab !== 'cleaner');
-        document.getElementById('content-cleaner').classList.toggle('hidden', tab !== 'cleaner');
-        document.getElementById('content-about').classList.toggle('hidden', tab !== 'about');
-      };
+      // Column normalization
+      const maybeRenamed = normalizeColumns(rows);
 
-      // Scan the selected file for unique item numbers and create a job
-      window.scanItems = async function() {
-        const fileInput = document.getElementById('fileInput');
-        const file = fileInput.files[0];
-        if (!file) {
-          alert('Please choose a file first.');
-          return;
-        }
-        setStatus('Scanning file for unique item numbers…');
-        // Reset UI
-        document.getElementById('itemSelect').innerHTML = '';
-        document.getElementById('cleanBtn').disabled = true;
-        document.getElementById('searchInput').disabled = true;
-        document.getElementById('downloadBtn').disabled = true;
-        clearLogs();
+      // Check required columns
+      const required = ['Document Name','File Path','Document Type Group','Date Stored','Document Type'];
+      const missing = required.filter(c => !(c in (maybeRenamed[0] || {})));
+      if(missing.length){
+        log(`Attempting to infer missing columns for ${item.name} (missing: ${missing.join(', ')})`);
+      }
 
-        // Read only first sheet or CSV to gather item numbers
-        const buf = await file.arrayBuffer();
-        let workbook;
-        try {
-          workbook = XLSX.read(buf, { type: 'array' });
-        } catch (err) {
-          console.error(err);
-          setStatus('Failed to parse file.');
-          return;
-        }
-        // Take first sheet
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
-        const data = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-        // Find column index for Item No by searching header row (first non-empty row)
-        let header = data.find(row => row.some(cell => cell !== '')) || [];
-        let itemIndex = header.findIndex(cell => /item.*no/i.test(String(cell)));
-        if (itemIndex === -1) itemIndex = 0; // fallback to first column
-        const unique = new Set();
-        for (let i = 1; i < data.length; i++) {
-          const val = String(data[i][itemIndex]).trim();
-          if (val) unique.add(val);
-          // Limit scanning to first 2000 rows to avoid memory pressure
-          if (unique.size > 200 && i > 2000) break;
-        }
-
-        const items = Array.from(unique).sort();
-        // Create or update session
-        // If no session exists, insert a new job row
-        let jobResponse;
-        if (!sessionId) {
-          jobResponse = await supa.from('csv_jobs').insert({ filename: file.name, status: 'uploaded' }).select().single();
-          if (jobResponse.error) {
-            alert('Failed to create job: ' + jobResponse.error.message);
-            setStatus('Failed to create session.');
-            return;
-          }
-          sessionId = jobResponse.data.id;
-        }
-        // Build file path: use sessionId as folder
-        filePath = `${sessionId}/${file.name}`;
-        // Upload file to raw_uploads bucket
-        const { error: uploadErr } = await supa.storage.from('raw_uploads').upload(filePath, file, { contentType: file.type, upsert: true });
-        if (uploadErr) {
-          alert('Upload failed: ' + uploadErr.message);
-          setStatus('Failed to upload.');
-          return;
-        }
-        // Show session info
-        document.getElementById('sessionInfo').classList.remove('hidden');
-        document.getElementById('sessionIdDisplay').textContent = sessionId;
-        // Populate select list
-        const select = document.getElementById('itemSelect');
-        items.forEach(it => {
-          const opt = document.createElement('option');
-          opt.value = it;
-          opt.textContent = it;
-          select.appendChild(opt);
-        });
-        document.getElementById('cleanBtn').disabled = items.length === 0;
-        setStatus(`Found ${items.length} unique item numbers. Ready to clean.`);
-      };
-
-      // Invoke the Edge Function to clean selected items
-      window.cleanSelected = async function() {
-        const options = Array.from(document.getElementById('itemSelect').selectedOptions);
-        const selected = options.map(o => o.value);
-        if (selected.length === 0) {
-          alert('Please select at least one item number to clean.');
-          return;
-        }
-        setStatus('Invoking cleaning job…');
-        clearLogs();
-        // Subscribe to logs for this session
-        if (logsChannel) {
-          supa.removeChannel(logsChannel);
-        }
-        logsChannel = supa.channel('job_logs_' + sessionId)
-          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'csv_job_logs', filter: 'job_id=eq.' + sessionId }, payload => {
-            const message = payload.new.message;
-            appendLog(message);
-          })
-          .subscribe();
-        // Start job via Edge Function
-        try {
-          const { data, error } = await supa.functions.invoke('process_csv', {
-            body: { job_id: sessionId, file_path: filePath, item_numbers: selected }
+      log('Cleaning data...');
+      // Show sample of original vs trimmed file paths for this file
+      try {
+        const samplePaths = maybeRenamed.slice(0, 5).map(r => String(r['File Path'] ?? '')).filter(p => p);
+        if (samplePaths.length) {
+          log('Sample trimmed file paths:');
+          samplePaths.forEach(pth => {
+            let trimmed;
+            if (trimStrategy === 'trim_first') {
+              trimmed = trimFilePath(String(pth).trim(), trimStrategy);
+            } else {
+              // trim_all: show only file name
+              trimmed = String(pth).trim().split(/[\\/]/).pop();
+            }
+            log(`${pth} -> ${trimmed}`);
           });
-          if (error) {
-            appendLog('Error invoking function: ' + error.message);
-            setStatus('Error running job.');
-            return;
-          }
-        } catch (err) {
-          appendLog('Error: ' + err.message);
-          setStatus('Error running job.');
-          return;
         }
-        setStatus('Job started. Waiting for completion…');
-        // Poll job status until completed
-        const poll = async () => {
-          const { data: job, error } = await supa.from('csv_jobs').select().eq('id', sessionId).single();
-          if (error) {
-            console.error('Status poll error', error);
-            setTimeout(poll, 2000);
-            return;
-          }
-          if (job.status === 'completed') {
-            jobStatus = 'completed';
-            appendLog('Job completed. Fetching cleaned data…');
-            setStatus('Fetching cleaned data…');
-            await fetchCleaned();
-            return;
-          } else if (job.status === 'error') {
-            jobStatus = 'error';
-            appendLog('Job encountered an error: ' + job.error);
-            setStatus('Job failed.');
-            return;
-          } else {
-            jobStatus = job.status;
-            setTimeout(poll, 2000);
-          }
-        };
-        poll();
-      };
-
-      // Fetch cleaned records from Supabase and cache
-      async function fetchCleaned() {
-        const { data: records, error } = await supa.from('cleaned_records').select('*').eq('job_id', sessionId);
-        if (error) {
-          appendLog('Error fetching cleaned data: ' + error.message);
-          setStatus('Failed to fetch cleaned data.');
-          return;
-        }
-        cleanedData = records.map(row => ({
-          item_no: row.item_no,
-          document_name: row.document_name,
-          file_paths: row.file_path,
-          type_group: row.document_type_group,
-          date_stored: row.date_stored,
-          document_type: row.document_type
-        }));
-        cache = cleanedData.slice();
-        renderResults(cleanedData);
-        document.getElementById('searchInput').disabled = false;
-        document.getElementById('downloadBtn').disabled = cleanedData.length === 0;
-        setStatus(`Loaded ${cleanedData.length} cleaned records.`);
+      } catch (sampleErr) {
+        // ignore errors in preview
       }
+      const cleanedRows = clean_dataframe(maybeRenamed);
 
-      // Render cleanedData to table
-      function renderResults(data) {
-        const tbody = document.getElementById('resultBody');
-        tbody.innerHTML = '';
-        data.forEach(row => {
-          const tr = document.createElement('tr');
-          ['item_no', 'document_name', 'file_paths', 'type_group', 'date_stored', 'document_type'].forEach(key => {
-            const td = document.createElement('td');
-            td.textContent = row[key];
-            tr.appendChild(td);
-          });
-          tbody.appendChild(tr);
-        });
+      // Build original preview CSV (first 30 rows) and cleaned CSV
+      let origCsv = '';
+      try {
+        const origSample = maybeRenamed.slice(0, 30);
+        origCsv = Papa.unparse(origSample);
+      } catch (err) {
+        origCsv = '';
       }
+      const csv = Papa.unparse(cleanedRows);
+      const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+      const base = item.name.replace(/\.[^.]+$/,'');
+      const outName = `${base}_cleaned.csv`;
+      state.cleaned.push({name: outName, blob, text: csv, origText: origCsv});
+      log(`Saved cleaned: ${outName}`);
+    }catch(e){
+      console.error(e);
+      log(`Error processing ${item.name}: ${e.message || e}`);
+    }
+  }
 
-      // Search within cleaned results
-      window.filterResults = function() {
-        const q = document.getElementById('searchInput').value.toLowerCase();
-        if (!cache) return;
-        if (!q) {
-          renderResults(cache);
-          return;
+  if(state.cleaned.length){
+    log('Cleaning completed.');
+    setStatus('Cleaning finished.');
+    renderOutputList();
+    // Switch to Output tab
+    $$('.tab').forEach(t=>t.classList.remove('active'));
+    $$('.tabpanel').forEach(p=>p.classList.remove('active'));
+    document.querySelector('.tab[data-tab="outputPanel"]').classList.add('active');
+    $('#outputPanel').classList.add('active');
+
+    // Automatically populate preview for the first cleaned file
+    try {
+      const first = state.cleaned[0];
+      const beforeDiv = document.getElementById('previewBefore');
+      const afterDiv = document.getElementById('previewAfter');
+      if(first && beforeDiv && afterDiv){
+        renderCSVTable(beforeDiv, first.origText || '');
+        renderCSVTable(afterDiv, first.text || '');
+      }
+    } catch(autoErr) {
+      // ignore auto preview errors
+    }
+  }else{
+    log('No files were cleaned.');
+    setStatus('Ready');
+  }
+}
+
+/* ------------------------------
+   Helpers
+------------------------------ */
+function escapeHtml(s){
+  return (s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+/*
+ * Render a CSV string into a table inside a container.
+ * This function uses Papa.parse to parse the CSV string and constructs
+ * an HTML table with borders to mimic a spreadsheet grid. Only the
+ * first 31 lines (header + 30 rows) are displayed for preview.
+ * @param {HTMLElement} container The element into which the table will be rendered.
+ * @param {string} csvString The CSV data as a string.
+ */
+function renderCSVTable(container, csvString){
+  if(!container){
+    return;
+  }
+  try{
+    // Parse the CSV string into an array of arrays
+    const result = Papa.parse(csvString, {header:false, skipEmptyLines:true});
+    const data = result.data || [];
+    // Limit to first 30 rows of data for preview (not counting header row)
+    const rows = data.slice(0, 30).map(r => r.map(cell => cell ?? ''));
+    // Determine number of columns
+    const numCols = rows[0] ? rows[0].length : 0;
+    // Helper to convert column index to Excel-like letters
+    function toColLabel(n){
+      let label = '';
+      while(n >= 0){
+        label = String.fromCharCode((n % 26) + 65) + label;
+        n = Math.floor(n / 26) - 1;
+      }
+      return label;
+    }
+    const table = document.createElement('table');
+    table.style.width = '100%';
+    table.style.borderCollapse = 'collapse';
+    // Column header row with letters
+    const colHeader = document.createElement('tr');
+    // Top-left blank corner
+    const corner = document.createElement('th');
+    corner.textContent = '';
+    corner.style.border = '1px solid #cccccc';
+    corner.style.background = '#e6f0ff';
+    colHeader.appendChild(corner);
+    for(let c = 0; c < numCols; c++){
+      const th = document.createElement('th');
+      th.textContent = toColLabel(c);
+      th.style.border = '1px solid #cccccc';
+      th.style.padding = '4px 6px';
+      th.style.whiteSpace = 'nowrap';
+      th.style.background = '#e6f0ff';
+      th.style.fontWeight = 'bold';
+      th.style.color = '#000000';
+      colHeader.appendChild(th);
+    }
+    table.appendChild(colHeader);
+    // Data rows with row numbers
+    rows.forEach((row, rowIndex) => {
+      const tr = document.createElement('tr');
+      // Row header with number
+      const rowHeader = document.createElement('th');
+      rowHeader.textContent = String(rowIndex + 1);
+      rowHeader.style.border = '1px solid #cccccc';
+      rowHeader.style.padding = '4px 6px';
+      rowHeader.style.whiteSpace = 'nowrap';
+      rowHeader.style.background = '#e6f0ff';
+      rowHeader.style.fontWeight = 'bold';
+      rowHeader.style.color = '#000000';
+      tr.appendChild(rowHeader);
+      row.forEach((cell, colIndex) => {
+        const td = document.createElement('td');
+        td.textContent = cell;
+        td.style.border = '1px solid #cccccc';
+        td.style.padding = '4px 6px';
+        td.style.whiteSpace = 'nowrap';
+        // Zebra striping for data cells
+        if((rowIndex % 2) === 0){
+          td.style.background = '#ffffff';
+        } else {
+          td.style.background = '#f5f5f5';
         }
-        const filtered = cache.filter(row => {
-          return Object.values(row).some(val => String(val).toLowerCase().includes(q));
-        });
-        renderResults(filtered);
-      };
+        tr.appendChild(td);
+      });
+      table.appendChild(tr);
+    });
+    // Clear any previous content and append the new table
+    container.innerHTML = '';
+    container.appendChild(table);
+  } catch(err){
+    // In case of parsing error, fallback to plain text inside a preformatted element
+    container.innerHTML = '<pre style="white-space: pre-wrap;">'+escapeHtml(csvString)+'</pre>';
+  }
+}
 
-      // Download cleaned data as an Excel file compressed into a zip
-      window.downloadCleaned = async function() {
-        if (!cache || cache.length === 0) return;
-        setStatus('Preparing download…');
-        // Convert to worksheet
-        const ws = XLSX.utils.json_to_sheet(cache);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, 'Cleaned');
-        const wbBlob = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-        // Create zip
-        const zip = new JSZip();
-        zip.file('cleaned.xlsx', wbBlob);
-        const content = await zip.generateAsync({ type: 'blob' });
-        const url = URL.createObjectURL(content);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `cleaned_${sessionId}.zip`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-        setStatus('Download ready.');
-      };
+/**
+ * Load and display a preview of the raw data for a given File object.
+ * This function reads the file (Excel or CSV), extracts up to the first 30
+ * rows, and renders them into the "Before" preview area using
+ * renderCSVTable(). It leaves the "After" preview untouched until
+ * cleaning occurs.
+ * @param {File} file The file to preview
+ */
+async function loadPreviewForFile(file){
+  try{
+    const ext = file.name.toLowerCase().split('.').pop();
+    let rows;
+    if(['xlsx','xlsm','xls'].includes(ext)){
+      rows = await parseSpreadsheet(file);
+    } else if(['csv','txt'].includes(ext)){
+      rows = await parseCsv(file);
+    } else {
+      return;
+    }
+    // Normalize columns names only for preview; do not apply cleaning logic
+    const maybeRenamed = normalizeColumns(rows);
+    const sample = maybeRenamed.slice(0, 30);
+    const csv = Papa.unparse(sample);
+    const beforeDiv = document.getElementById('previewBefore');
+    if(beforeDiv){
+      renderCSVTable(beforeDiv, csv);
+    }
+  } catch(err){
+    // If preview fails, leave the default header grid
+  }
+}
 
-      // Delete session: remove data and storage files
-      window.deleteSession = async function() {
-        if (!sessionId) return;
-        if (!confirm('This will delete all data for this session. Continue?')) return;
-        setStatus('Deleting session…');
-        clearLogs();
-        // Delete storage files
-        await supa.storage.from('raw_uploads').remove([filePath]);
-        await supa.storage.from('cleaned_output').remove([`${sessionId}/cleaned.xlsx`]);
-        // Delete records
-        await supa.from('cleaned_records').delete().eq('job_id', sessionId);
-        await supa.from('csv_job_logs').delete().eq('job_id', sessionId);
-        await supa.from('csv_jobs').delete().eq('id', sessionId);
-        // Reset state
-        sessionId = null;
-        filePath = null;
-        cleanedData = [];
-        cache = null;
-        document.getElementById('sessionInfo').classList.add('hidden');
-        document.getElementById('sessionIdDisplay').textContent = '';
-        document.getElementById('itemSelect').innerHTML = '';
-        document.getElementById('cleanBtn').disabled = true;
-        document.getElementById('searchInput').disabled = true;
-        document.getElementById('downloadBtn').disabled = true;
-        document.getElementById('resultBody').innerHTML = '';
-        setStatus('Session deleted. Ready.');
-      };
-    </script>
-  </body>
+/* ------------------------------
+   Init
+------------------------------ */
+setStatus('Ready');
+log('Welcome! Add .xlsx/.xls/.csv files and click "Start Cleaning".');
+renderFileList();
+
+// Define change log history with dates and grouped entries
+const changeLogHistory = [
+  {
+    date: '2025-10-14',
+    entries: [
+      'Added before/after cleaning preview for comparison.',
+      'Added light/dark mode toggle in Settings.',
+      'Merged Home and Change Log tabs into a single non-dismissable Change Log tab.',
+      'Improved settings layout and prevented content overflow.'
+    ]
+  },
+  {
+    date: '2025-10-13',
+    entries: [
+      'Added file path strategy options (Trim all / or only the first slash).',
+      'Added Settings tab with additional cleaning toggles and responsive layout.',
+      'Added Download All button in the output panel.',
+      'Added Home and Change Log tabs with dismissible updates.'
+    ]
+  },
+  {
+    date: '2025-10-08',
+    entries: [
+      'Fixed file path trimming logic (handling backslashes and first-slash removal).',
+      'Initial release with core cleaning functions.'
+    ]
+  }
+];
+
+// Theme definitions for light and dark modes
+const themes = {
+  dark: {
+    '--bg': '#1E1E1E',
+    '--bg2': '#252526',
+    '--bg3': '#2D2D2D',
+    '--fg': '#D4D4D4',
+    '--accent': '#007ACC',
+    '--btn': '#0E639C',
+    '--btn-hover': '#1177BB',
+    '--btn-press': '#094771',
+    '--muted': '#666666',
+    '--border': '#2D2D2D'
+  },
+  light: {
+    '--bg': '#f5f5f5',
+    '--bg2': '#eeeeee',
+    '--bg3': '#e0e0e0',
+    '--fg': '#1E1E1E',
+    '--accent': '#007ACC',
+    '--btn': '#007ACC',
+    '--btn-hover': '#006BB3',
+    '--btn-press': '#005A99',
+    '--muted': '#666666',
+    '--border': '#cccccc'
+  }
+};
+
+function applyTheme(theme){
+  const root = document.documentElement;
+  const colors = themes[theme] || themes.dark;
+  Object.keys(colors).forEach(key => {
+    root.style.setProperty(key, colors[key]);
+  });
+}
+
+function loadTheme(){
+  const stored = localStorage.getItem('theme') || 'dark';
+  applyTheme(stored);
+  const themeSelect = document.getElementById('themeSelect');
+  if(themeSelect) themeSelect.value = stored;
+}
+
+function updateTheme(value){
+  applyTheme(value);
+  localStorage.setItem('theme', value);
+}
+
+// Render the change log list into the Change Log panel, skipping dismissed items stored in localStorage
+function renderChangeLog() {
+  const panel = document.getElementById('changelogPanel');
+  if (!panel) return;
+  // Clear panel and add heading
+  panel.innerHTML = '<h2>Change Log</h2>';
+  changeLogHistory.forEach(group => {
+    const h3 = document.createElement('h3');
+    h3.textContent = group.date;
+    h3.style.marginTop = '12px';
+    h3.style.marginBottom = '4px';
+    panel.appendChild(h3);
+    const ul = document.createElement('ul');
+    ul.style.listStyle = 'disc';
+    ul.style.paddingLeft = '20px';
+    group.entries.forEach(entry => {
+      const li = document.createElement('li');
+      li.style.marginBottom = '4px';
+      li.textContent = entry;
+      ul.appendChild(li);
+    });
+    panel.appendChild(ul);
+  });
+}
+
+// Render the home panel message, allowing dismissal
+
+// Initialize trim strategy from localStorage and set up listeners
+loadTrimStrategy();
+// Initialize theme from localStorage
+loadTheme();
+// Hook up change listeners for both strategy selects (sidebar and settings)
+const sidebarSelEl = document.getElementById('sidebarTrimStrategySelect');
+if (sidebarSelEl) {
+  sidebarSelEl.addEventListener('change', (e) => {
+    updateTrimStrategy(e.target.value);
+  });
+}
+const settingsSelEl = document.getElementById('trimStrategySelect');
+if (settingsSelEl) {
+  settingsSelEl.addEventListener('change', (e) => {
+    updateTrimStrategy(e.target.value);
+  });
+}
+
+// Attach change listener for theme selection
+const themeSelectEl = document.getElementById('themeSelect');
+if (themeSelectEl) {
+  themeSelectEl.addEventListener('change', (e) => {
+    updateTheme(e.target.value);
+  });
+}
+
+// Attach click handler for Download All button
+const downloadAllBtn = document.getElementById('btnDownloadAll');
+if (downloadAllBtn) {
+  downloadAllBtn.addEventListener('click', () => {
+    state.cleaned.forEach(c => {
+      const fileName = c.name.endsWith('_cleaned.csv') ? c.name : `${c.name}_cleaned.csv`;
+      const url = URL.createObjectURL(c.blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    });
+  });
+}
+
+// Render change log on initial load
+renderChangeLog();
+
+// Render empty preview grids with headers before any files are loaded
+try {
+  const headerCSV = 'FolderName,Document Name,File Number,Name,MDA,File Path,Document Type Group,Date Stored,Document Type';
+  const beforeContainerInit = document.getElementById('previewBefore');
+  const afterContainerInit = document.getElementById('previewAfter');
+  if(beforeContainerInit) {
+    renderCSVTable(beforeContainerInit, headerCSV + '\n');
+  }
+  if(afterContainerInit) {
+    renderCSVTable(afterContainerInit, headerCSV + '\n');
+  }
+} catch(initErr) {
+  // ignore initialization errors
+}
+
+</script>
+</body>
 </html>
